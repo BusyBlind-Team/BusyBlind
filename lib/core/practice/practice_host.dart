@@ -115,6 +115,16 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     _finish(reason);
   }
 
+  /// 统一输入分发：原始 down/up 先进 SessionRecorder（对账的原始时间线），
+  /// 再交给玩法做语义判定。
+  void _dispatchInput(PointerEvent e, PointerPhase phase) {
+    final ctx = _ctx;
+    if (ctx == null || !_running || _finishing) return;
+    final event = ctx.input.capture(e, ctx.scheduler.nowUs);
+    ctx.recorder.log('input:${phase.name}', {'sessionUs': event.sessionUs});
+    _session.onInput(event);
+  }
+
   Future<void> _finish(FinishReason reason) async {
     if (_finishing || !_running) return;
     _finishing = true;
@@ -210,12 +220,9 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     } else {
       child = Listener(
         behavior: HitTestBehavior.opaque,
-        onPointerDown: (e) => _session
-            .onInput(ctx.input.capture(e, ctx.scheduler.nowUs)),
-        onPointerUp: (e) => _session
-            .onInput(ctx.input.capture(e, ctx.scheduler.nowUs)),
-        onPointerCancel: (e) => _session
-            .onInput(ctx.input.capture(e, ctx.scheduler.nowUs)),
+        onPointerDown: (e) => _dispatchInput(e, PointerPhase.down),
+        onPointerUp: (e) => _dispatchInput(e, PointerPhase.up),
+        onPointerCancel: (e) => _dispatchInput(e, PointerPhase.cancel),
         child: _BlackScaffold(child: _session.buildVisual(context)),
       );
     }
