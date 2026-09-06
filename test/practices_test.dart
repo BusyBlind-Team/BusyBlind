@@ -252,6 +252,40 @@ void main() {
 
       scheduler.dispose();
     });
+
+    test('难度递进与 叮-咚-咚 变奏：连踩 10 阶（每跳偏差 0.1s 判成功）', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = CrossRiverSession(rng: Random(7));
+        session.prepare(ctx);
+        async.flushMicrotasks();
+        scheduler.begin();
+        session.start();
+
+        var variationSeen = false;
+        for (var i = 1; i <= 10; i++) {
+          final anchor = session.dongAnchorUs;
+          final t = session.t1Us;
+          clock.advanceUs(anchor + 100000);
+          session.onInput(tap(anchor + 100000));
+          session.onInput(release(anchor + 100000 + t));
+          if (session.variation) {
+            // 变奏第二段：在第二声咚后 0.1s 起手，复现 T2。
+            variationSeen = true;
+            final anchor2 = anchor + t;
+            final t2 = session.t2Us;
+            clock.advanceUs(anchor2 + 100000);
+            session.onInput(tap(anchor2 + 100000));
+            session.onInput(release(anchor2 + 100000 + t2));
+          }
+          expect(session.jumpNo, i + 1, reason: '第 $i 跳应成功');
+          async.elapse(const Duration(milliseconds: 50));
+        }
+        expect(variationSeen, isTrue, reason: '第 10 跳应出现过变奏');
+        expect(session.finished, isFalse);
+        scheduler.dispose();
+      });
+    });
   });
 
   group('钓花', () {

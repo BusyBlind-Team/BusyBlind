@@ -36,6 +36,7 @@ class CrossRiverSession extends PracticeSession {
   int _t2Us = 0;
   int _dongAnchorUs = 0; // 咚的调度时刻（会话时间轴）
   bool _awaitingSecondSegment = false;
+  int _jumpId = 0; // 守门回调按跳跃 id 失效，防陈旧守门影响后续跳跃
 
   // 本跳输入轨迹。
   bool _pressed = false;
@@ -79,6 +80,7 @@ class CrossRiverSession extends PracticeSession {
 
   void _nextJump() {
     _jumpNo++;
+    _jumpId++;
     // 每 5 跳：T 范围扩大，并从第 10 跳起引入变奏。
     if (_jumpNo > 1 && (_jumpNo - 1) % 5 == 0) {
       _loUs = (_loUs * 0.85).round();
@@ -101,9 +103,12 @@ class CrossRiverSession extends PracticeSession {
     _pressed = false;
 
     _hudText = '第 $_jumpNo 步${_variation ? ' · 叮-咚-咚' : ''}';
-    // 守门：若用户迟迟不松手，按失败收口。
+    // 守门：若本跳迟迟未完成，按失败收口（只对本跳生效）。
     final guard = t0 + _t1Us + (_variation ? _t2Us : 0) + _missGuardUs;
-    _ctx.scheduler.scheduleCallback(guard, _onMiss);
+    final id = _jumpId;
+    _ctx.scheduler.scheduleCallback(guard, () {
+      if (id == _jumpId) _onMiss();
+    });
   }
 
   void _onMiss() {
