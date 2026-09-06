@@ -66,10 +66,12 @@ class SitQuietSession extends PracticeSession {
 
   PracticeResult _result(FinishReason r) {
     final t = _ctx.scheduler.nowUs().clamp(0, _lengthUs);
+    final completedFull = t >= _lengthUs && r == FinishReason.completed;
     return PracticeResult(
       effectiveDuration: Duration(microseconds: t),
       quality: t >= _lengthUs ? 1.0 : t / _lengthUs,
-      merit: 1,
+      // 修为只来自真实完成（设计方案原则 5）：没坐满一分钟不发修为。
+      merit: completedFull ? 1 : 0,
       metrics: {'seconds': t ~/ 1000000},
       completed: r == FinishReason.completed,
     );

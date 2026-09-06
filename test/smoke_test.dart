@@ -3,6 +3,7 @@ import 'package:busy_blind/core/audio/sound_bank.dart';
 import 'package:busy_blind/core/practice/practice_host.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/di.dart';
+import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,12 +11,12 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
 
-Widget harness({required Widget home, AppStore? store}) {
+Widget harness({required Widget home, AppStore? store, FakeClock? clock}) {
   return ProviderScope(
     overrides: [
       storeProvider.overrideWithValue(store ?? AppStore.inMemory()),
       soundBankProvider.overrideWithValue(SilentSoundBank()),
-      clockProvider.overrideWithValue(FakeClock()),
+      clockProvider.overrideWithValue(clock ?? FakeClock()),
     ],
     child: MaterialApp(home: home),
   );
@@ -83,5 +84,31 @@ void main() {
     // 页面没有退出（仍能找到结算页内容），而是走了正常结算收口。
     expect(find.text('修行中断'), findsOneWidget);
     expect(find.text('回去'), findsOneWidget);
+  });
+
+  testWidgets('完成修行 → 结算页展示修为与新解锁的成就', (tester) async {
+    final clock = FakeClock();
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(factory: SitQuietSession.new),
+        store: store,
+        clock: clock,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.textContaining('开始'));
+    await tester.pumpAndSettle();
+
+    // 静坐一分钟走完：推进时钟，让调度器触发结算收口。
+    clock.advanceUs(61000000);
+    await tester.pump();
+    await tester.pumpAndSettle();
+
+    expect(find.text('修行结束'), findsOneWidget);
+    expect(find.text('修为 +1'), findsOneWidget);
+    expect(find.textContaining('初入山门'), findsOneWidget); // 首次修行成就可见
+    expect(store.isUnlocked('first_session'), isTrue);
   });
 }

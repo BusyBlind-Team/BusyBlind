@@ -99,6 +99,19 @@ void main() {
         scheduler.dispose();
       });
     });
+
+    test('没坐满就取消：不发修为（修为只来自真实完成）', () async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = SitQuietSession();
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      final result = await session.finish(FinishReason.cancelled);
+      expect(result.merit, 0);
+      expect(result.completed, isFalse);
+      scheduler.dispose();
+    });
   });
 
   group('木鱼', () {

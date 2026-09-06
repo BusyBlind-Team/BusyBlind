@@ -41,6 +41,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   bool _running = false;
   bool _finishing = false;
   PracticeResult? _result;
+  List<String> _freshAchievements = const [];
 
   @override
   void initState() {
@@ -154,7 +155,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
           break;
       }
     }
-    final fresh = store.unlockAchievements(
+    final freshIds = store.unlockAchievements(
       kAchievements
           .where(
             (a) => a.test(
@@ -163,15 +164,22 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
           )
           .map((a) => a.id),
     );
+    final freshTitles = [
+      for (final id in freshIds)
+        kAchievements.firstWhere((a) => a.id == id).title,
+    ];
 
     // 声音语言：磬两声 = 结束 / 可以睁眼。
     await sounds.play(SoundCatalog.chimeDoubleKey);
-    for (final _ in fresh) {
+    for (final _ in freshTitles) {
       await sounds.play(SoundCatalog.chimeSoftKey);
     }
 
     if (mounted) {
-      setState(() => _result = result);
+      setState(() {
+        _result = result;
+        _freshAchievements = freshTitles;
+      });
     }
   }
 
@@ -189,6 +197,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
           session: _session,
           result: _result!,
           merit: _result!.merit.clamp(0, manifest.meritBase * 3),
+          achievementTitles: _freshAchievements,
         ),
       );
     } else if (!_running) {
@@ -316,11 +325,13 @@ class _SummaryView extends StatelessWidget {
     required this.session,
     required this.result,
     required this.merit,
+    this.achievementTitles = const [],
   });
 
   final PracticeSession session;
   final PracticeResult result;
   final int merit;
+  final List<String> achievementTitles;
 
   @override
   Widget build(BuildContext context) {
@@ -341,6 +352,29 @@ class _SummaryView extends StatelessWidget {
               textAlign: TextAlign.center,
               style: const TextStyle(color: Color(0xFFD8B36A), fontSize: 18),
             ),
+            if (achievementTitles.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              for (final title in achievementTitles)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0x1AD8B36A),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.military_tech, color: Color(0xFFD8B36A), size: 18),
+                      const SizedBox(width: 8),
+                      Text(
+                        '解锁成就 · $title',
+                        style: const TextStyle(color: Color(0xFFD8B36A), fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
             const SizedBox(height: 24),
             session.buildSummary(context, result),
             const SizedBox(height: 36),
