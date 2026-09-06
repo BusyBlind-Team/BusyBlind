@@ -48,6 +48,31 @@ void main() {
     });
   });
 
+  test('已触发的事件不会在 pause/resume 后重放', () {
+    fakeAsync((async) {
+      final clock = FakeClock();
+      final sounds = SilentSoundBank();
+      final scheduler = EventScheduler(clock, sounds);
+      scheduler.begin();
+
+      scheduler.scheduleSound(500000, 'tick');
+      clock.advanceUs(600000);
+      async.elapse(const Duration(milliseconds: 200));
+      expect(sounds.played.where((k) => k == 'tick').length, 1);
+
+      // 模拟退后台再回来：已响过的磬不得重放。
+      scheduler.pause();
+      clock.advanceUs(5000000);
+      async.elapse(const Duration(milliseconds: 100));
+      scheduler.resume();
+      clock.advanceUs(5000000);
+      async.elapse(const Duration(milliseconds: 200));
+
+      expect(sounds.played.where((k) => k == 'tick').length, 1);
+      scheduler.dispose();
+    });
+  });
+
   test('cancelAll 丢弃未触发事件', () {
     fakeAsync((async) {
       final clock = FakeClock();

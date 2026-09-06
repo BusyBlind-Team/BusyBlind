@@ -100,11 +100,12 @@ class EventScheduler {
       t.cancel();
     }
     _pendingWallTimers.clear();
+    // 只重置"已预约但尚未触发"的事件；已触发的事件保持 fired，
+    // 否则 pause/resume 后会被重放（退后台回来磬声重响的 bug）。
     for (final item in _items) {
-      if (item.armed) {
-        item
-          ..armed = false
-          ..fired = false;
+      if (item.armed && !item.fired) {
+        item.armed = false;
+        item.fired = false;
       }
     }
   }
@@ -127,7 +128,9 @@ class EventScheduler {
   }
 
   void _fire(_SchedItem item) {
-    item.fired = true;
+    item
+      ..fired = true
+      ..armed = false;
     _pendingWallTimers.removeWhere((t) => !t.isActive);
     if (item.soundKey != null) {
       recorder?.log('sound:${item.soundKey}');
