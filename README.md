@@ -4,15 +4,55 @@
 >
 > **设计文档都在 [`docs/`](docs/)**：产品规则、技术方案、概念介绍，以及 `docs/文件资料/` 里的原始策划案与框架提示词。
 
-## 运行
+## 启动方法
+
+### 环境要求
+
+- **Flutter SDK** ≥ 3.47（stable 渠道；开发机装在 `~/development/flutter`，建议把 `~/development/flutter/bin` 加进 `PATH`）
+- **iOS**：Xcode（App Store 装完整版，首次打开同意协议）+ CocoaPods（`brew install cocoapods`）
+- **Android**：Android Studio（自带模拟器与 SDK）
+- 无需后端、无需任何 API key：数据全部本地优先，断网时除"加好友"外功能完整
+
+### 首次启动（三步）
 
 ```bash
-cd busy_blind
-flutter pub get
-flutter run          # iOS 模拟器 / 真机（需要 Xcode）
-flutter test         # 23 个测试（核心逻辑 + widget 冒烟）
-dart run tool/gen_sounds.dart   # 重新生成 assets/sfx/ 下的占位音效
+git clone git@github.com:KymeFran/Fuckthon.git   # 拉取仓库（或 HTTPS 地址）
+cd Fuckthon/busy_blind
+flutter pub get                                   # 拉依赖
 ```
+
+然后直接运行（首次会编译原生工程，iOS 首次构建约 3–5 分钟）：
+
+```bash
+flutter run
+```
+
+### 选择设备
+
+```bash
+flutter devices                     # 看当前可用的设备
+open -a Simulator                   # 打开 iOS 模拟器后，再 flutter run
+flutter emulators                   # 列出安卓模拟器；flutter emulators --launch <id> 启动
+flutter run -d <deviceId>           # 指定设备（多台同时在线时用）
+flutter run --release               # 性能验证用 release 模式（音视频时序更真实）
+```
+
+建议优先用**真机 + 耳机**验证：这套玩法的命门是声音时序，模拟器的音频延迟偏大，只能验证功能、不能验证手感。
+
+### 测试与工具
+
+```bash
+flutter test                        # 23 个测试（时钟调度 / 六个修行 / 本地存储 / widget 冒烟）
+flutter analyze                     # 静态检查（当前无错误警告）
+dart run tool/gen_sounds.dart       # assets/sfx/ 里的占位音效由脚本合成，可随时重新生成
+```
+
+### 常见问题
+
+- `flutter: command not found`：Flutter 不在 PATH 里，`export PATH="$HOME/development/flutter/bin:$PATH"`（或用全路径调用）。
+- iOS 构建报 Pod 相关错误：`cd ios && pod install --repo-update` 后重试；换过 Flutter 版本后先 `flutter clean`。
+- 第一次启动没有声音：确认 `flutter pub get` 成功（音效在 `assets/sfx/`，随包加载）；仍无声时跑一次上面的音效生成脚本再 `flutter clean && flutter run`。
+- 想清空本地数据重新体验：「我」页签 → 清空本地数据（调试）。
 
 技术栈按构建方案：Flutter + audioplayers（短音效预载内存池）+ flutter_riverpod + 本地 JSON 存储（预留 Drift 迁移位）。
 
