@@ -5,6 +5,7 @@ import '../../di.dart';
 import '../../domain/achievements.dart';
 import '../../theme.dart';
 import '../audio/event_scheduler.dart';
+import '../audio/input_capture.dart';
 import '../audio/session_recorder.dart';
 import '../audio/sound_catalog.dart';
 import 'practice_manifest.dart';
