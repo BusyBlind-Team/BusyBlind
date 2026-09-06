@@ -41,10 +41,14 @@ flutter run --release               # 性能验证用 release 模式（音视频
 
 建议优先用**真机 + 耳机**验证：这套玩法的命门是声音时序，模拟器的音频延迟偏大，只能验证功能、不能验证手感。
 
+### 不装任何环境，直接装到手机（Android）
+
+每次推送后 CI 会自动构建 release APK：打开仓库的 **Actions → 最新一次运行 → Artifacts → `busy_blind-apk`** 下载，传到手机直接安装（需允许"安装未知来源应用"）。iOS 因签名限制仍需 TestFlight 路线。
+
 ### 测试与工具
 
 ```bash
-flutter test                        # 23 个测试（时钟调度 / 六个修行 / 本地存储 / widget 冒烟）
+flutter test                        # 28 个测试（时钟调度 / 六个修行 / 本地存储 / widget 冒烟）
 flutter analyze                     # 静态检查（当前无错误警告）
 dart run tool/gen_sounds.dart       # assets/sfx/ 里的占位音效由脚本合成，可随时重新生成
 ```
