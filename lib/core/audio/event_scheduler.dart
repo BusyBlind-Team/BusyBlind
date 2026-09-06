@@ -17,14 +17,16 @@ class EventScheduler {
   EventScheduler(
     this._clock,
     this._sounds, {
-    SessionRecorder? recorder,
+    this.recorder,
     this.lookaheadUs = 200000,
     this.tickInterval = const Duration(milliseconds: 40),
-  }) : _recorder = recorder;
+  });
 
   final AudioClock _clock;
   final SoundBank _sounds;
-  final SessionRecorder? _recorder;
+
+  /// 声音事件自动落入的记录器（会话级，可为空）。
+  final SessionRecorder? recorder;
 
   /// 提前预约窗口：进入窗口的事件立即预约一次性触发。
   final int lookaheadUs;
@@ -128,7 +130,7 @@ class EventScheduler {
     item.fired = true;
     _pendingWallTimers.removeWhere((t) => !t.isActive);
     if (item.soundKey != null) {
-      _recorder?.log('sound:${item.soundKey}');
+      recorder?.log('sound:${item.soundKey}');
       _sounds.play(item.soundKey!, gain: item.gain);
     }
     item.fn?.call();
