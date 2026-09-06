@@ -1,12 +1,25 @@
 import 'package:busy_blind/app.dart';
 import 'package:busy_blind/core/audio/sound_bank.dart';
+import 'package:busy_blind/core/practice/practice_host.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/di.dart';
+import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
+
+Widget harness({required Widget home, AppStore? store}) {
+  return ProviderScope(
+    overrides: [
+      storeProvider.overrideWithValue(store ?? AppStore.inMemory()),
+      soundBankProvider.overrideWithValue(SilentSoundBank()),
+      clockProvider.overrideWithValue(FakeClock()),
+    ],
+    child: MaterialApp(home: home),
+  );
+}
 
 void main() {
   testWidgets('AppShell 三页签 + 僧页 + 修行列表可完整渲染', (tester) async {
@@ -52,5 +65,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('确定'), findsWidgets); // 每个条目都带详情（默认折叠）
     expect(find.text('取消'), findsWidgets);
+  });
+
+  testWidgets('修行运行中触发系统返回 → 拦截为"用户结束"并出结算页', (tester) async {
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new)),
+    );
+    await tester.pumpAndSettle();
+
+    // 开始修行（开场页 → 运行中）。
+    await tester.tap(find.textContaining('开始'));
+    await tester.pumpAndSettle();
+
+    // 模拟系统返回手势/返回键。
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    // 页面没有退出（仍能找到结算页内容），而是走了正常结算收口。
+    expect(find.text('修行中断'), findsOneWidget);
+    expect(find.text('回去'), findsOneWidget);
   });
 }

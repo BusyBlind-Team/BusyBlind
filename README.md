@@ -104,7 +104,8 @@ dart run tool/gen_sounds.dart       # assets/sfx/ 里的占位音效由脚本合
 - 修复：打坐页未实现反挂机第一重（退后台立即暂停计时）→ 补上生命周期观察。
 - 修复：AppStore 连续快速变更时写盘可能交错 → 写入串行化排队。
 - 清理：听潮残留的无用调度字段；相位推进逻辑简化。
-- 机制：新增 GitHub Actions CI（push/PR 自动 analyze + test）。
+- 机制：新增 GitHub Actions CI（push/PR 自动 analyze + test），首轮已绿。
+- 补测：新增回归测试——修行运行中触发系统返回必须出结算页而不是直接退出（防改坏）。
 
 **已知待办（按优先级）**
 
