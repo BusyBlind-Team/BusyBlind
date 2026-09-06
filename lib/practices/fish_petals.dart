@@ -26,6 +26,7 @@ class FishPetalsSession extends PracticeSession {
   static const int _noBiteBeforeUs = 2000000; // 前 2 秒概率为 0
   static const int _restUs = 2000000; // 休竿期
   static const int _catchWindowUs = 1500000; // "叮"后收杆窗口
+  static const int _hookTimeoutUs = 4000000; // 触竿后最长握竿时长，超时自动休整
   static const int _antiIdleUs = 90000000; // 90 秒无输入自动结算
   static const double _petalChance = 0.65;
 
@@ -109,16 +110,24 @@ class FishPetalsSession extends PracticeSession {
           _hook(now);
         }
       case _RodState.hooked:
+        final held = now - _hookAtUs;
         // "叮"后超时未收手：花瓣随波而去。
-        if (_hookIsPetal && now - _hookAtUs > _catchWindowUs) {
+        if (_hookIsPetal && held > _catchWindowUs) {
           _missed++;
-          _state = _RodState.resting;
-          _restEndUs = now + _restUs;
+          _restFrom(now);
+        } else if (held > _hookTimeoutUs) {
+          // "咚"后长时间握着不放：自动空竿休整，不把状态机吊死。
+          _restFrom(now);
         }
       case _RodState.idle:
       case _RodState.resting:
         break;
     }
+  }
+
+  void _restFrom(int now) {
+    _state = _RodState.resting;
+    _restEndUs = now + _restUs;
   }
 
   void _hook(int now) {
@@ -128,6 +137,25 @@ class FishPetalsSession extends PracticeSession {
     _ctx.recorder.log('hook', {'petal': _hookIsPetal, 'waitMs': (now - _castStartUs) ~/ 1000});
     _state = _RodState.hooked;
   }
+
+  // ---- 测试钩子：绕过随机触发，直接把状态机推到触竿态 ----
+  @visibleForTesting
+  void debugForceHook({required bool petal}) {
+    final now = _ctx.scheduler.nowUs();
+    _castStartUs = now;
+    _hookAtUs = now;
+    _hookIsPetal = petal;
+    _state = _RodState.hooked;
+  }
+
+  @visibleForTesting
+  bool get debugIsResting => _state == _RodState.resting;
+  @visibleForTesting
+  int get debugPetals => _petalsCaught;
+  @visibleForTesting
+  int get debugMissed => _missed;
+  @visibleForTesting
+  int get debugMiscatch => _miscatch;
 
   @override
   void onInput(InputEvent e) {
@@ -163,12 +191,10 @@ class FishPetalsSession extends PracticeSession {
             _miscatch++;
             _waitTimesUs.add(heldUs);
           }
-          _state = _RodState.resting;
-          _restEndUs = now + _restUs;
+          _restFrom(now);
         } else if (_state == _RodState.casting) {
           // 没等到触竿就收手：空竿。
-          _state = _RodState.resting;
-          _restEndUs = now + _restUs;
+          _restFrom(now);
         }
     }
   }

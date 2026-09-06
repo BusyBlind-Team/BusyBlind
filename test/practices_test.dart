@@ -263,6 +263,40 @@ void main() {
       expect(FishPetalsSession.biteRatePerSecond(120000000), closeTo(0.60, 0.001));
     });
 
+    test('叮后窗口内收手→花瓣入库；叮超时→流失；咚久握→4s 自动休整', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 叮 + 窗口内收手 → 花瓣入库。
+        session.debugForceHook(petal: true);
+        session.onInput(release(800000)); // 0.8s < 1.5s 窗口
+        expect(session.debugPetals, 1);
+        expect(session.debugIsResting, isTrue);
+
+        // 叮 + 超时未收 → 流失。
+        clock.advanceUs(3000000); // 越过 2s 休竿期
+        async.elapse(const Duration(milliseconds: 200));
+        session.debugForceHook(petal: true);
+        clock.advanceUs(2000000); // 2s > 1.5s 窗口
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugMissed, 1);
+
+        // 咚 + 久握 → 4s 自动空竿休整（未松手不计误收）。
+        clock.advanceUs(5000000); // 越过休竿期
+        async.elapse(const Duration(milliseconds: 200));
+        session.debugForceHook(petal: false);
+        clock.advanceUs(4500000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugIsResting, isTrue);
+        expect(session.debugMiscatch, 0);
+        scheduler.dispose();
+      });
+    });
+
     test('叮后 1.5 秒内松手 → 花瓣入库（extraRewards）', () async {
       FinishReason? reason;
       final (ctx, _, _, scheduler) = makeContext((r) => reason = r);
