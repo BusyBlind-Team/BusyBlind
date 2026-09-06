@@ -229,14 +229,20 @@ class AppStore extends ChangeNotifier {
 
   // ---- 持久化 ----
 
-  Future<void> _save() async {
-    final file = _file;
-    if (file == null) return;
-    try {
-      await file.writeAsString(jsonEncode(_data));
-    } catch (e) {
-      debugPrint('AppStore save failed: $e');
-    }
+  Future<void>? _saveQueue;
+
+  /// 串行化写盘：连续快速变更时排队写入，避免文件写入交错损坏。
+  Future<void> _save() {
+    _saveQueue = (_saveQueue ?? Future<void>.value()).then((_) async {
+      final file = _file;
+      if (file == null) return;
+      try {
+        await file.writeAsString(jsonEncode(_data));
+      } catch (e) {
+        debugPrint('AppStore save failed: $e');
+      }
+    });
+    return _saveQueue!;
   }
 
   /// 清空全部数据（调试用，UI 侧有二次确认）。

@@ -1,0 +1,29 @@
+# 持续自检：每次 push / PR 自动跑静态分析与全部测试。
+# 这是设计方案原则 2（时机即体验）与测试套件的机制化守门。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.2
+          cache: true
+
+      - name: 拉取依赖
+        run: flutter pub get
+
+      - name: 静态分析
+        run: flutter analyze
+
+      - name: 测试
+        run: flutter test

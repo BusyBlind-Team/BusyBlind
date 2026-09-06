@@ -26,7 +26,8 @@ class MeditationPage extends ConsumerStatefulWidget {
   ConsumerState<MeditationPage> createState() => _MeditationPageState();
 }
 
-class _MeditationPageState extends ConsumerState<MeditationPage> {
+class _MeditationPageState extends ConsumerState<MeditationPage>
+    with WidgetsBindingObserver {
   static const int _chimeIntervalSec = 300;
   static const int _confirmWindowSec = 30;
   static const int _exitHoldMs = 2000;
@@ -40,19 +41,37 @@ class _MeditationPageState extends ConsumerState<MeditationPage> {
   double _exitProgress = 0;
   bool _exiting = false;
 
-  bool get _accumulating => !_confirmExpired && !_exiting;
+  /// 反挂机第一重（设计方案 6.4）：app 进入后台立即暂停计时，不惩罚。
+  bool _inBackground = false;
+
+  bool get _accumulating => !_confirmExpired && !_exiting && !_inBackground;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _exitTimer?.cancel();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        _inBackground = true;
+      case AppLifecycleState.resumed:
+        _inBackground = false;
+      default:
+        break;
+    }
   }
 
   void _tick() {

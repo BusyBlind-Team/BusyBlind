@@ -28,7 +28,6 @@ class TideBreathSession extends PracticeSession {
   int _exhaleUs = 6000000;
   bool _inhaling = true;
   int _phaseStartUs = 0;
-  int? _nextPhaseTimer;
 
   // 输入状态。
   bool _pressed = false;
@@ -91,10 +90,10 @@ class TideBreathSession extends PracticeSession {
   }
 
   void _scheduleNextPhase() {
+    // 本方法总在相位切换的当下调用，所以下一个边界就是 now + len。
     final len = _inhaling ? _inhaleUs : _exhaleUs;
-    _nextPhaseTimer = len - (_ctx.scheduler.nowUs() - _phaseStartUs);
     _ctx.scheduler.scheduleCallback(
-      _ctx.scheduler.nowUs() + _nextPhaseTimer!,
+      _ctx.scheduler.nowUs() + len,
       _flipPhase,
     );
   }

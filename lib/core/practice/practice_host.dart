@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
 import '../../domain/achievements.dart';
+import '../../theme.dart';
 import '../audio/event_scheduler.dart';
 import '../audio/session_recorder.dart';
 import '../audio/sound_catalog.dart';
@@ -211,31 +212,40 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     }
 
     final showEndChip = manifest.allowManualEnd && _running && _result == null;
-    return Stack(
-      children: [
-        Positioned.fill(child: child),
-        if (showEndChip)
-          Positioned(
-            top: 48,
-            right: 20,
-            child: SafeArea(
-              child: GestureDetector(
-                onTap: () => _finish(FinishReason.userEnded),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0x22FFFFFF),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: const Text(
-                    '结束',
-                    style: TextStyle(color: Color(0x99FFFFFF), fontSize: 13),
+    return PopScope<Object?>(
+      // 运行中拦截系统返回：按"用户结束"走正常结算收口，不丢结果。
+      canPop: !_running || _finishing,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _running && !_finishing) {
+          _finish(FinishReason.cancelled);
+        }
+      },
+      child: Stack(
+        children: [
+          Positioned.fill(child: child),
+          if (showEndChip)
+            Positioned(
+              top: 48,
+              right: 20,
+              child: SafeArea(
+                child: GestureDetector(
+                  onTap: () => _finish(FinishReason.userEnded),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0x22FFFFFF),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      '结束',
+                      style: TextStyle(color: Color(0x99FFFFFF), fontSize: 13),
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -333,6 +343,16 @@ class _SummaryView extends StatelessWidget {
             ),
             const SizedBox(height: 24),
             session.buildSummary(context, result),
+            const SizedBox(height: 36),
+            FilledButton(
+              onPressed: () => Navigator.of(context).maybePop(),
+              style: FilledButton.styleFrom(
+                backgroundColor: AppTheme.gold,
+                foregroundColor: const Color(0xFF0B0B10),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: const Text('回去'),
+            ),
           ],
         ),
       ),
