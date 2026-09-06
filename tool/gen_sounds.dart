@@ -21,16 +21,17 @@ void main() {
   write('tick.wav', tick());
   write('muyu.wav', muyu(dark: false));
   write('muyu_muffled.wav', muyu(dark: true));
-  write('he_ding.wav', bell([1760, 2640, 3520], amps: [1.0, 0.4, 0.2], decay: 0.7, gain: 0.8));
-  write('he_dong.wav', thud(base: 196, decay: 0.5, gain: 0.85));
+  // 短瞬态音效保留 44.1kHz；低频长尾与环境循环降到 22.05kHz 省包体。
+  write('he_ding.wav', bell([1760, 2640, 3520], amps: [1.0, 0.4, 0.2], decay: 0.7, gain: 0.8, seconds: 2.0));
+  write('he_dong.wav', decimate2(thud(base: 196, decay: 0.5, gain: 0.85)));
   write('fish_ding.wav', bell([880, 1320], amps: [1.0, 0.3], decay: 0.28, gain: 0.85, pluck: true));
-  write('fish_dong.wav', thud(base: 150, decay: 0.2, gain: 0.8));
+  write('fish_dong.wav', decimate2(thud(base: 150, decay: 0.2, gain: 0.8)));
   write('rain_drop.wav', bell([3200, 4800], amps: [1.0, 0.3], decay: 0.07, gain: 0.7));
-  write('bell_low.wav', bell([330, 660, 990], amps: [1.0, 0.5, 0.25], decay: 1.7, gain: 0.7));
+  write('bell_low.wav', decimate2(bell([330, 660, 990], amps: [1.0, 0.5, 0.25], decay: 1.7, gain: 0.7, seconds: 2.6)));
   write('wind_chime.wav', windChime());
   write('swish.wav', swish());
-  write('forest_loop.wav', forestLoop());
-  write('tide_loop.wav', tideLoop());
+  write('forest_loop.wav', decimate2(forestLoop()), rate: 22050);
+  write('tide_loop.wav', decimate2(tideLoop()), rate: 22050);
 
   stdout.writeln('已生成 ${outDir.listSync().length} 个音效 → assets/sfx/');
 }
@@ -218,6 +219,16 @@ List<double> loopable(List<double> input, double fadeSeconds) {
   return out;
 }
 
+/// 2:1 抽取降采样（44.1k → 22.05k）。用于低频/噪声类音轨，
+/// 语义表里的最高频成分（虫鸣 4.2kHz、鸟叫 ≤4.4kHz）远离新奈奎斯特频率。
+List<double> decimate2(List<double> input) {
+  final out = <double>[];
+  for (var i = 0; i + 1 < input.length; i += 2) {
+    out.add((input[i] + input[i + 1]) / 2);
+  }
+  return out;
+}
+
 List<double> normalize(List<double> input, double peak) {
   var maxAbs = 0.0;
   for (final v in input) {
@@ -231,7 +242,7 @@ List<double> normalize(List<double> input, double peak) {
 
 // ---------- WAV 写出 ----------
 
-void write(String name, List<double> samples) {
+void write(String name, List<double> samples, {int rate = sampleRate}) {
   final n = samples.length;
   final data = BytesBuilder();
   for (var i = 0; i < n; i++) {
@@ -244,7 +255,7 @@ void write(String name, List<double> samples) {
   final header = BytesBuilder()
     ..add([...utf8list('RIFF'), ...u32(36 + payload.length), ...utf8list('WAVE')])
     ..add([...utf8list('fmt '), ...u32(16), ...u16(1), ...u16(1)])
-    ..add([...u32(sampleRate), ...u32(sampleRate * 2), ...u16(2), ...u16(16)])
+    ..add([...u32(rate), ...u32(rate * 2), ...u16(2), ...u16(16)])
     ..add([...utf8list('data'), ...u32(payload.length)]);
 
   final file = File('assets/sfx/$name');
