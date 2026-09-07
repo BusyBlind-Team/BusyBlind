@@ -7,6 +7,8 @@ import 'core/audio/sound_bank.dart';
 import 'core/audio/sound_catalog.dart';
 import 'data/app_store.dart';
 import 'di.dart';
+import 'features/tutorial/tutorial_page.dart';
+import 'shell/app_shell.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,7 +33,9 @@ Future<void> main() async {
         soundBankProvider.overrideWithValue(sounds),
         clockProvider.overrideWithValue(clock),
       ],
-      child: const BusyBlindApp(),
+      child: BusyBlindApp(
+        home: store.tutorialDone ? const AppShell() : const TutorialPage(),
+      ),
     ),
   );
 }

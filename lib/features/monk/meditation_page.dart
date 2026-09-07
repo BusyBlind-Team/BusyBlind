@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../core/audio/sound_catalog.dart';
 import '../../core/practice/practice_manifest.dart';
@@ -11,6 +12,7 @@ import '../../data/app_store.dart';
 import '../../di.dart';
 import '../../domain/achievements.dart';
 import '../../widgets/monk_figure.dart';
+import 'motion_gate.dart';
 
 /// 打坐（"禅"按钮进入）。
 ///
@@ -44,13 +46,35 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
   /// 反挂机第一重（设计方案 6.4）：app 进入后台立即暂停计时，不惩罚。
   bool _inBackground = false;
 
-  bool get _accumulating => !_confirmExpired && !_exiting && !_inBackground;
+  /// 反挂机第三重：持续大幅位移（走路）→ 暂停计时；安静后自动恢复。
+  StreamSubscription<AccelerometerEvent>? _accelSub;
+  final MotionGate _motionGate = MotionGate();
+  bool _moving = false;
+
+  bool get _accumulating =>
+      !_confirmExpired && !_exiting && !_inBackground && !_moving;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) => _tick());
+    _accelSub = accelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 100),
+    ).listen(
+      _onAccel,
+      onError: (_) {}, // 无传感器/不支持的平台上静默降级为不检测。
+    );
+  }
+
+  void _onAccel(AccelerometerEvent e) {
+    final moving = _motionGate.feed(
+      DateTime.now().millisecondsSinceEpoch,
+      deviationFromGravity(e.x, e.y, e.z).abs(),
+    );
+    if (moving != _moving && mounted) {
+      setState(() => _moving = moving);
+    }
   }
 
   @override
@@ -58,6 +82,7 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
     _exitTimer?.cancel();
+    _accelSub?.cancel();
     super.dispose();
   }
 
@@ -205,11 +230,13 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
               const MonkFigure(dim: true),
               const Spacer(flex: 4),
               Text(
-                _confirmExpired
+                _moving
+                    ? '检测到走动 · 计时已暂停'
+                    : _confirmExpired
                     ? '轻触任意处继续'
                     : _awaitingConfirm
-                        ? '——你在吗？轻触任意处——'
-                        : '',
+                    ? '——你在吗？轻触任意处——'
+                    : '',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Color(0x55E8DFC8), fontSize: 13),
               ),

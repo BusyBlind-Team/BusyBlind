@@ -34,6 +34,7 @@ class AppStore extends ChangeNotifier {
 
   static Map<String, Object?> _defaults(Map<String, Object?> data) => {
     'merit': data['merit'] ?? 0,
+    'tutorialDone': data['tutorialDone'] ?? false,
     'meditation': data['meditation'] ?? {'date': '', 'earnedToday': 0},
     'dailySign': data['dailySign'] ?? {'lastDate': '', 'slips': []},
     'petals': data['petals'] ?? <String, int>{},
@@ -43,6 +44,16 @@ class AppStore extends ChangeNotifier {
     'sessions': data['sessions'] ?? <Object?>[],
     'lUserUs': data['lUserUs'] ?? 0,
   };
+
+  // ---- 首启教程 ----
+
+  bool get tutorialDone => _data['tutorialDone']! as bool;
+
+  set tutorialDone(bool value) {
+    _data['tutorialDone'] = value;
+    _save();
+    notifyListeners();
+  }
 
   // ---- 修为 ----
 
