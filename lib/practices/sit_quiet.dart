@@ -5,6 +5,7 @@ import '../core/practice/practice_manifest.dart';
 import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
+import '../widgets/practice_scene.dart';
 
 /// 静坐（一分钟）——框架验收用例，同时是教程的 60 秒试玩。
 ///
@@ -38,9 +39,21 @@ class SitQuietSession extends PracticeSession {
   @override
   void start() {
     _started = true;
+    notifyVisualChanged();
+    _scheduleVisualTick();
     // 一分钟后：磬两声 = 结束。
     _ctx.scheduler.scheduleCallback(_lengthUs, () {
       _ctx.requestFinish(FinishReason.completed);
+    });
+  }
+
+  void _scheduleVisualTick() {
+    final next = (_ctx.scheduler.nowUs() + 1000000).clamp(0, _lengthUs);
+    if (next >= _lengthUs) return;
+    _ctx.scheduler.scheduleCallback(next, () {
+      if (_finished) return;
+      notifyVisualChanged();
+      _scheduleVisualTick();
     });
   }
 
@@ -79,11 +92,13 @@ class SitQuietSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    return Center(
-      child: Text(
-        _started ? '闭眼 · 静坐' : '',
-        style: const TextStyle(color: Color(0x33E8DFC8), fontSize: 15, letterSpacing: 8),
-      ),
+    final progress = _started ? _ctx.scheduler.nowUs() / _lengthUs : 0.0;
+    return PracticeScene(
+      kind: PracticeSceneKind.sitQuiet,
+      title: '静 坐',
+      subtitle: '闭眼 · 随呼吸安住此刻',
+      progress: progress,
+      active: _started,
     );
   }
 
