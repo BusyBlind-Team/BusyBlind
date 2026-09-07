@@ -1,0 +1,54 @@
+00:00 +0: loading <audit-worktree>/test/audit_reproduction_test.dart
+00:00 +0: R1: nonzero calibration changes absAudioUs but not gameplay sessionUs
+00:00 +1: R2: paused scheduler advances and fishing anti-idle fires
+00:00 +2: R3: no-input cancellation pays wooden fish 6 and rain 5 merit
+00:00 +3: R4: store changes do not refresh MePage
+00:00 +4: R5: stale fuse button consumes petals twice for one flower
+00:00 +5: R6: calibration still plays beats after its page is disposed
+00:00 +6: R7: leaving sign page within 700ms produces disposed-ref exception
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following StateError was thrown running a test:
+Bad state: Using "ref" when a widget is about to or has been unmounted is unsafe.
+Ref relies on BuildContext, and BuildContext is unsafe to use when the widget is deactivated.
+To safely refer to the state of providers inside State.dispose(), save the provider state in a field
+of your State class.
+
+When the exception was thrown, this was the stack:
+#0      ConsumerStatefulElement._assertNotDisposed (package:flutter_riverpod/src/core/consumer.dart:471:7)
+#1      ConsumerStatefulElement.read (package:flutter_riverpod/src/core/consumer.dart:562:5)
+#2      _SignPageState._draw.<anonymous closure> (package:busy_blind/features/monk/sign_page.dart:31:25)
+#13     FakeTimer._fire (package:fake_async/fake_async.dart:364:13)
+#14     FakeAsync._fireTimersWhile (package:fake_async/fake_async.dart:247:13)
+#15     FakeAsync.elapse (package:fake_async/fake_async.dart:141:5)
+#16     AutomatedTestWidgetsFlutterBinding.pump.<anonymous closure> (package:flutter_test/src/binding.dart:2254:28)
+#19     TestAsyncUtils.guard (package:flutter_test/src/test_async_utils.dart:74:41)
+#20     AutomatedTestWidgetsFlutterBinding.pump (package:flutter_test/src/binding.dart:2250:27)
+#21     WidgetTester.pump.<anonymous closure> (package:flutter_test/src/widget_tester.dart:652:53)
+#24     TestAsyncUtils.guard (package:flutter_test/src/test_async_utils.dart:74:41)
+#25     WidgetTester.pump (package:flutter_test/src/widget_tester.dart:652:27)
+#26     main.<anonymous closure> (file://<audit-worktree>/test/audit_reproduction_test.dart:161:18)
+<asynchronous suspension>
+#27     testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#28     TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 15 frames from dart:async and package:stack_trace)
+
+The test description was:
+  R7: leaving sign page within 700ms produces disposed-ref exception
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:00 +6 -1: R7: leaving sign page within 700ms produces disposed-ref exception [E]
+  Test failed. See exception logs above.
+  The test description was: R7: leaving sign page within 700ms produces disposed-ref exception
+
+00:00 +6 -1: R8: meditation system back skips session persistence
+00:00 +7 -1: R9: real host credits cancelled empty wooden fish session
+00:00 +8 -1: R10: sleep-mode finishing exposes an active start button
+00:00 +9 -1: R11: seven cancelled sessions qualify as seven completed sessions
+00:00 +10 -1: R12: truncated storage silently becomes a new empty account
+00:00 +11 -1: R13: five slips still increase the river difficulty
+00:00 +12 -1: Some tests failed.
+
+Failing tests:
+  <audit-worktree>/test/audit_reproduction_test.dart: R7: leaving sign page within 700ms produces disposed-ref exception
