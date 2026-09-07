@@ -185,9 +185,9 @@ AppStore 是 `ChangeNotifier`，但注入采用普通 `Provider<AppStore>`。页
 ## 随附证据
 
 - [复现说明](evidence/README.md)
-- [审计复现用例](evidence/audit_reproduction_test.dart)
+- [审计复现用例](evidence/audit_reproduction_test.dart.txt)
 - [原有测试日志](evidence/baseline-test.log)
 - [静态分析日志](evidence/baseline-analyze.log)
 - [审计复现日志](evidence/reproduction-test.log)
 
-上传版本将日志中的本机工作目录替换为 `<audit-worktree>` 并清理行末空白，保留异常、断言和测试结果。复现代码位于文档证据目录，不自动加入常规测试集合。
+上传版本将日志中的本机工作目录替换为 `<audit-worktree>` 并清理行末空白，保留异常、断言和测试结果。复现代码以 `.dart.txt` 附件保存在文档证据目录，不参与常规源码分析或测试发现。

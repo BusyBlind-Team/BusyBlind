@@ -5,12 +5,13 @@
 
 - baseline-test.log：原有 45 个测试全部通过；包含试听点击未命中警告。
 - baseline-analyze.log：原有 lib/test 的 Dart 静态分析结果，无 issue。
-- audit_reproduction_test.dart：13 个审计复现用例。
+- audit_reproduction_test.dart.txt：13 个审计复现用例。
 - reproduction-test.log：12 个用例确认缺陷行为，R7 因抽签回调在组件卸载后读取 ref 产生未处理异常而失败。
 
-复现方式：在上述提交的独立副本中，将 audit_reproduction_test.dart 放到 test/ 下；该文件复用仓库现有 test/helpers/fake_clock.dart 与 test/practices_test.dart 的辅助方法。
+复现方式：在上述提交的独立副本中，将 audit_reproduction_test.dart.txt 复制到 test/ 下并重命名为 audit_reproduction_test.dart；该文件复用仓库现有 test/helpers/fake_clock.dart 与 test/practices_test.dart 的辅助方法。
 
 ```sh
+cp docs/audits/2026-09-07/evidence/audit_reproduction_test.dart.txt test/audit_reproduction_test.dart
 flutter pub get
 flutter test test/audit_reproduction_test.dart --reporter expanded
 ```
