@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:busy_blind/core/audio/event_scheduler.dart';
 import 'package:busy_blind/core/audio/input_capture.dart';
@@ -14,7 +15,42 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
 
+/// Golden rasterization differs slightly between Skia on Windows and Linux.
+/// Keep the threshold below a quarter percent so structural regressions still
+/// fail while sub-pixel text antialiasing does not make CI platform-dependent.
+class _CrossPlatformGoldenComparator extends LocalFileComparator {
+  _CrossPlatformGoldenComparator(super.testFile);
+
+  static const double _maxDiffPercent = 0.002;
+
+  @override
+  Future<bool> compare(Uint8List imageBytes, Uri golden) async {
+    final result = await GoldenFileComparator.compareLists(
+      imageBytes,
+      await getGoldenBytes(golden),
+    );
+    final withinTolerance = result.passed ||
+        result.diffPercent <= _maxDiffPercent;
+    result.dispose();
+    if (withinTolerance) return true;
+
+    // Delegate genuine failures so Flutter still writes the standard
+    // master/test/masked diff images and its familiar diagnostic message.
+    return super.compare(imageBytes, golden);
+  }
+}
+
 void main() {
+  final defaultGoldenComparator = goldenFileComparator;
+  setUpAll(() {
+    if (defaultGoldenComparator is LocalFileComparator) {
+      goldenFileComparator = _CrossPlatformGoldenComparator(
+        defaultGoldenComparator.basedir.resolve('visuals_and_assets_test.dart'),
+      );
+    }
+  });
+  tearDownAll(() => goldenFileComparator = defaultGoldenComparator);
+
   test('声音目录全部切到 MP3，且总体积至少减少一半', () {
     expect(SoundCatalog.catalog, hasLength(16));
     expect(
