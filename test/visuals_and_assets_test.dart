@@ -29,8 +29,8 @@ class _CrossPlatformGoldenComparator extends LocalFileComparator {
       imageBytes,
       await getGoldenBytes(golden),
     );
-    final withinTolerance = result.passed ||
-        result.diffPercent <= _maxDiffPercent;
+    final withinTolerance =
+        result.passed || result.diffPercent <= _maxDiffPercent;
     result.dispose();
     if (withinTolerance) return true;
 

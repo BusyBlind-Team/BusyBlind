@@ -22,6 +22,7 @@ class PracticeScene extends StatefulWidget {
     this.active = false,
     this.count = 0,
     this.accent = 0,
+    this.showText = true,
   });
 
   final PracticeSceneKind kind;
@@ -31,6 +32,11 @@ class PracticeScene extends StatefulWidget {
   final bool active;
   final int count;
   final double accent;
+
+  /// 关闭后场景只含底图与确定性画笔（无文本）。
+  /// 视觉快照（golden）必须传 false：文本的字形栅格化依宿主字体而定，
+  /// 会让基准图跨平台失效。文案由功能测试用 finder 断言。
+  final bool showText;
 
   @override
   State<PracticeScene> createState() => _PracticeSceneState();
@@ -115,45 +121,48 @@ class _PracticeSceneState extends State<PracticeScene>
               ),
             ),
           ),
-          SafeArea(
-            minimum: const EdgeInsets.fromLTRB(24, 32, 24, 36),
-            child: Column(
-              children: [
-                Text(
-                  widget.title,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    color: Color(0xDDE8DFC8),
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 5,
-                    shadows: [Shadow(color: Colors.black, blurRadius: 8)],
-                  ),
-                ),
-                const Spacer(),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0x6603080A),
-                    borderRadius: BorderRadius.circular(24),
-                    border: Border.all(color: const Color(0x33D8B36A)),
-                  ),
-                  child: Text(
-                    widget.subtitle,
+          if (!widget.showText)
+            const SizedBox.shrink()
+          else
+            SafeArea(
+              minimum: const EdgeInsets.fromLTRB(24, 32, 24, 36),
+              child: Column(
+                children: [
+                  Text(
+                    widget.title,
                     textAlign: TextAlign.center,
                     style: const TextStyle(
-                      color: Color(0xB3E8DFC8),
-                      fontSize: 13,
-                      letterSpacing: 2,
+                      color: Color(0xDDE8DFC8),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 5,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 8)],
                     ),
                   ),
-                ),
-              ],
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x6603080A),
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: const Color(0x33D8B36A)),
+                    ),
+                    child: Text(
+                      widget.subtitle,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        color: Color(0xB3E8DFC8),
+                        fontSize: 13,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
