@@ -8,6 +8,7 @@ import '../core/practice/practice_manifest.dart';
 import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
+import '../widgets/practice_scene.dart';
 
 /// 听潮的三档呼吸节奏标签（修行列表选择用）。
 const List<String> kBreathTierLabels = ['入门 4-6', '标准 4-7', '深度 4-8'];
@@ -53,8 +54,7 @@ class TideBreathSession extends PracticeSession {
     meritBase: 10,
     iconKey: 'tide_breath',
     allowManualEnd: true,
-    rulesText:
-        '潮涨渐强时，按住屏幕吸气（4 秒）；\n潮落渐弱时，松开屏幕呼气。\n咬合的瞬间，会有一层风铃。',
+    rulesText: '潮涨渐强时，按住屏幕吸气（4 秒）；\n潮落渐弱时，松开屏幕呼气。\n咬合的瞬间，会有一层风铃。',
   );
 
   @override
@@ -71,9 +71,15 @@ class TideBreathSession extends PracticeSession {
     _lastMatchCheckUs = _phaseStartUs;
     _scheduleNextPhase();
     // 音量包络：涨潮渐强 / 落潮渐弱（缓慢变化，走普通定时器即可）。
-    _volumeTimer = Timer.periodic(const Duration(milliseconds: 120), (_) => _rampVolume());
+    _volumeTimer = Timer.periodic(
+      const Duration(milliseconds: 120),
+      (_) => _rampVolume(),
+    );
     // 相位吻合累计与风铃反馈：200ms 轮询，精度足够。
-    _matchTimer = Timer.periodic(const Duration(milliseconds: 200), (_) => _pollMatch());
+    _matchTimer = Timer.periodic(
+      const Duration(milliseconds: 200),
+      (_) => _pollMatch(),
+    );
   }
 
   Timer? _volumeTimer;
@@ -92,10 +98,7 @@ class TideBreathSession extends PracticeSession {
   void _scheduleNextPhase() {
     // 本方法总在相位切换的当下调用，所以下一个边界就是 now + len。
     final len = _inhaling ? _inhaleUs : _exhaleUs;
-    _ctx.scheduler.scheduleCallback(
-      _ctx.scheduler.nowUs() + len,
-      _flipPhase,
-    );
+    _ctx.scheduler.scheduleCallback(_ctx.scheduler.nowUs() + len, _flipPhase);
   }
 
   void _flipPhase() {
@@ -113,6 +116,7 @@ class TideBreathSession extends PracticeSession {
     _inhaling = !_inhaling;
     _chimedThisPhase = false;
     _phaseStartUs = now;
+    notifyVisualChanged();
     _scheduleNextPhase();
   }
 
@@ -130,7 +134,11 @@ class TideBreathSession extends PracticeSession {
         _pressed = false;
         _pressStartUs = null;
     }
-    _ctx.recorder.log('input:breath', {'pressed': _pressed, 'inhaling': _inhaling});
+    _ctx.recorder.log('input:breath', {
+      'pressed': _pressed,
+      'inhaling': _inhaling,
+    });
+    notifyVisualChanged();
   }
 
   /// 相位吻合累计与风铃反馈，交给低频轮询（200ms，精度足够）。
@@ -194,7 +202,9 @@ class TideBreathSession extends PracticeSession {
       metrics: {
         'avgSync': avgSync,
         'phaseCount': _phaseBoundariesUs.length,
-        'phaseSyncRates': _phaseSyncRates.map((e) => (e * 100).round()).toList(),
+        'phaseSyncRates': _phaseSyncRates
+            .map((e) => (e * 100).round())
+            .toList(),
         'sleepMode': sleepMode,
       },
     );
@@ -202,12 +212,21 @@ class TideBreathSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    return const Center(
-      child: Text(
-        '潮 涨 按 · 潮 落 松',
-        style: TextStyle(color: Color(0x33E8DFC8), fontSize: 15, letterSpacing: 6),
-      ),
+    return PracticeScene(
+      kind: PracticeSceneKind.tideBreath,
+      title: _inhaling ? '潮 涨 · 吸' : '潮 落 · 呼',
+      subtitle: _inhaling ? '按住屏幕 · 缓缓吸气' : '松开屏幕 · 慢慢呼气',
+      active: _pressed,
+      count: _phaseBoundariesUs.length,
+      accent: _phaseMatchesInput ? 1 : 0.25,
     );
+  }
+
+  @override
+  void dispose() {
+    _volumeTimer?.cancel();
+    _matchTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -222,9 +241,11 @@ class TideBreathSession extends PracticeSession {
           style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15),
         ),
         const SizedBox(height: 16),
-        const Text('各相位同步率（%）',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0x66E8DFC8), fontSize: 12)),
+        const Text(
+          '各相位同步率（%）',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Color(0x66E8DFC8), fontSize: 12),
+        ),
         const SizedBox(height: 8),
         Text(
           '平均同步率 $sync %',

@@ -9,6 +9,7 @@ import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
 import '../domain/petals.dart';
+import '../widgets/practice_scene.dart';
 
 /// 钓花（耐心 · 收集）——听觉化改造版（设计方案 7.4）。
 ///
@@ -87,7 +88,10 @@ class FishPetalsSession extends PracticeSession {
 
   @override
   void start() {
-    _pollTimer = Timer.periodic(const Duration(milliseconds: 100), (_) => _poll());
+    _pollTimer = Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _poll(),
+    );
   }
 
   void _poll() {
@@ -128,14 +132,19 @@ class FishPetalsSession extends PracticeSession {
   void _restFrom(int now) {
     _state = _RodState.resting;
     _restEndUs = now + _restUs;
+    notifyVisualChanged();
   }
 
   void _hook(int now) {
     _hookAtUs = now;
     _hookIsPetal = _rng.nextDouble() < _petalChance;
     _ctx.sounds.play(_hookIsPetal ? 'fish_ding' : 'fish_dong', gain: 0.9);
-    _ctx.recorder.log('hook', {'petal': _hookIsPetal, 'waitMs': (now - _castStartUs) ~/ 1000});
+    _ctx.recorder.log('hook', {
+      'petal': _hookIsPetal,
+      'waitMs': (now - _castStartUs) ~/ 1000,
+    });
     _state = _RodState.hooked;
+    notifyVisualChanged();
   }
 
   // ---- 测试钩子：绕过随机触发，直接把状态机推到触竿态 ----
@@ -146,6 +155,7 @@ class FishPetalsSession extends PracticeSession {
     _hookAtUs = now;
     _hookIsPetal = petal;
     _state = _RodState.hooked;
+    notifyVisualChanged();
   }
 
   @visibleForTesting
@@ -165,13 +175,15 @@ class FishPetalsSession extends PracticeSession {
 
     switch (e.phase) {
       case PointerPhase.down:
-        if (_state == _RodState.idle || (_state == _RodState.resting && now >= _restEndUs)) {
+        if (_state == _RodState.idle ||
+            (_state == _RodState.resting && now >= _restEndUs)) {
           // 甩杆。
           _state = _RodState.casting;
           _castStartUs = now;
           _casts++;
           _ctx.sounds.play('swish', gain: 0.6);
           _ctx.recorder.log('cast', {'at': now});
+          notifyVisualChanged();
         }
       case PointerPhase.up:
       case PointerPhase.cancel:
@@ -183,7 +195,11 @@ class FishPetalsSession extends PracticeSession {
             _petalsCaught++;
             _waitTimesUs.add(heldUs);
             _caught.add(
-              Reward(kind: RewardKind.petal, id: species.id, label: '${species.name}花瓣'),
+              Reward(
+                kind: RewardKind.petal,
+                id: species.id,
+                label: '${species.name}花瓣',
+              ),
             );
             _ctx.sounds.play('wind_chime', gain: 0.5);
             _ctx.recorder.log('catch', {'species': species.id});
@@ -222,8 +238,13 @@ class FishPetalsSession extends PracticeSession {
     // quality 由平均等待时长与误收率构成，防"速钓刷次数"。
     final waitScore = (avgWaitUs / 20000000).clamp(0.2, 1.0);
     final miscatchRate = (_casts == 0) ? 0.0 : _miscatch / _casts;
-    final quality = (waitScore * 0.7 + (1 - miscatchRate) * 0.3).clamp(0.1, 1.0);
-    final merit = _petalsCaught == 0 && minutes < 0.5 ? 0 : (minutes * 2 * quality).round();
+    final quality = (waitScore * 0.7 + (1 - miscatchRate) * 0.3).clamp(
+      0.1,
+      1.0,
+    );
+    final merit = _petalsCaught == 0 && minutes < 0.5
+        ? 0
+        : (minutes * 2 * quality).round();
 
     return PracticeResult(
       effectiveDuration: Duration(microseconds: elapsedUs),
@@ -244,12 +265,28 @@ class FishPetalsSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    return const Center(
-      child: Text(
-        '长 按 甩 竿 · 闭 眼 等',
-        style: TextStyle(color: Color(0x33E8DFC8), fontSize: 15, letterSpacing: 6),
-      ),
+    final subtitle = switch (_state) {
+      _RodState.idle => '长按甩竿 · 闭眼等候',
+      _RodState.casting => '水面很静 · 再等一等',
+      _RodState.hooked => _hookIsPetal ? '叮 · 松手收花' : '咚 · 此竿为空',
+      _RodState.resting => '收心片刻 · 等水面复静',
+    };
+    return PracticeScene(
+      kind: PracticeSceneKind.fishPetals,
+      title: '钓 花',
+      subtitle: subtitle,
+      active: _state == _RodState.hooked,
+      count: _casts,
+      accent: _petalsCaught > 0 || (_state == _RodState.hooked && _hookIsPetal)
+          ? 1
+          : 0,
     );
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    super.dispose();
   }
 
   @override
@@ -269,14 +306,20 @@ class FishPetalsSession extends PracticeSession {
         _Row(label: '钓起花瓣', value: '${m['petalsCaught']} 片'),
         _Row(label: '"咚"空竿', value: '${m['miscatch']} 次'),
         _Row(label: '"叮"未接住', value: '${m['missed']} 次'),
-        _Row(label: '平均等待', value: '${(m['avgWaitSec'] as num? ?? 0).toStringAsFixed(1)} 秒'),
+        _Row(
+          label: '平均等待',
+          value: '${(m['avgWaitSec'] as num? ?? 0).toStringAsFixed(1)} 秒',
+        ),
         if (_caught.isNotEmpty) ...[
           const SizedBox(height: 12),
           Wrap(
             spacing: 10,
             children: [
               for (final reward in _caught)
-                PetalBadge(label: reward.label, color: petalById(reward.id).color),
+                PetalBadge(
+                  label: reward.label,
+                  color: petalById(reward.id).color,
+                ),
             ],
           ),
         ],
@@ -298,8 +341,14 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13)),
-          Text(value, style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14)),
+          Text(
+            label,
+            style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13),
+          ),
+          Text(
+            value,
+            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14),
+          ),
         ],
       ),
     );

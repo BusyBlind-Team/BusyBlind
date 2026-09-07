@@ -8,6 +8,7 @@ import '../core/practice/practice_manifest.dart';
 import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
+import '../widgets/practice_scene.dart';
 
 /// 过河（专注 · 节奏复现）。
 ///
@@ -46,12 +47,18 @@ class CrossRiverSession extends PracticeSession {
   String _hudText = '听 叮 咚 · 复 现 间 隔';
 
   // ---- 测试钩子 ----
-  @visibleForTesting int get jumpNo => _jumpNo;
-  @visibleForTesting int get t1Us => _t1Us;
-  @visibleForTesting int get t2Us => _t2Us;
-  @visibleForTesting int get dongAnchorUs => _dongAnchorUs;
-  @visibleForTesting bool get variation => _variation;
-  @visibleForTesting bool get finished => _finished;
+  @visibleForTesting
+  int get jumpNo => _jumpNo;
+  @visibleForTesting
+  int get t1Us => _t1Us;
+  @visibleForTesting
+  int get t2Us => _t2Us;
+  @visibleForTesting
+  int get dongAnchorUs => _dongAnchorUs;
+  @visibleForTesting
+  bool get variation => _variation;
+  @visibleForTesting
+  bool get finished => _finished;
 
   @override
   PracticeManifest get manifest => const PracticeManifest(
@@ -94,7 +101,11 @@ class CrossRiverSession extends PracticeSession {
     _ctx.scheduler.scheduleSound(t0, SoundCatalog.heDingKey, gain: 0.9);
     _ctx.scheduler.scheduleSound(t0 + _t1Us, SoundCatalog.heDongKey, gain: 0.9);
     if (_variation) {
-      _ctx.scheduler.scheduleSound(t0 + _t1Us + _t2Us, SoundCatalog.heDongKey, gain: 0.8);
+      _ctx.scheduler.scheduleSound(
+        t0 + _t1Us + _t2Us,
+        SoundCatalog.heDongKey,
+        gain: 0.8,
+      );
     }
 
     // 咚的实际调度时刻为计时锚点（判定只对齐它）。
@@ -103,6 +114,7 @@ class CrossRiverSession extends PracticeSession {
     _pressed = false;
 
     _hudText = '第 $_jumpNo 步${_variation ? ' · 叮-咚-咚' : ''}';
+    notifyVisualChanged();
     // 守门：若本跳迟迟未完成，按失败收口（只对本跳生效）。
     final guard = t0 + _t1Us + (_variation ? _t2Us : 0) + _missGuardUs;
     final id = _jumpId;
@@ -123,8 +135,9 @@ class CrossRiverSession extends PracticeSession {
 
   void _judgeRelease(int releaseUs) {
     final t = _awaitingSecondSegment ? _t2Us : _t1Us;
-    final anchor =
-        _awaitingSecondSegment ? _dongAnchorUs + _t1Us : _dongAnchorUs;
+    final anchor = _awaitingSecondSegment
+        ? _dongAnchorUs + _t1Us
+        : _dongAnchorUs;
     final dev = releaseUs - anchor - t;
     _releaseDeviationsUs.add(dev);
     final w = _windowFor(t);
@@ -143,6 +156,7 @@ class CrossRiverSession extends PracticeSession {
       // 变奏第一段通过：等待第二段复现。
       _awaitingSecondSegment = true;
       _hudText = '第 $_jumpNo 步 · 还有第二段';
+      notifyVisualChanged();
       return;
     }
     // （踩滑不死，但难度不递进：不扩大范围即可。）
@@ -151,6 +165,8 @@ class CrossRiverSession extends PracticeSession {
 
   void _fail() {
     if (_finished) return;
+    _hudText = '一念偏了 · 落入水中';
+    notifyVisualChanged();
     _ctx.sounds.play(SoundCatalog.heDongKey, gain: 0.5);
     _ctx.requestFinish(FinishReason.completed);
   }
@@ -161,6 +177,7 @@ class CrossRiverSession extends PracticeSession {
     switch (e.phase) {
       case PointerPhase.down:
         _pressed = true;
+        notifyVisualChanged();
         // 起手早晚不作硬判定，只计入曲线。
         _ctx.recorder.log('input:press', {
           'at': e.sessionUs,
@@ -170,6 +187,7 @@ class CrossRiverSession extends PracticeSession {
       case PointerPhase.cancel:
         if (_pressed) {
           _pressed = false;
+          notifyVisualChanged();
           _ctx.recorder.log('input:release', {'at': e.sessionUs});
           // 等咚响过才判定（咚没响就松手 = 起手过早，计入曲线但不硬判）。
           if (e.sessionUs >= _dongAnchorUs) {
@@ -201,9 +219,11 @@ class CrossRiverSession extends PracticeSession {
     final avgDevUs = _releaseDeviationsUs.isEmpty
         ? 0
         : _releaseDeviationsUs.fold<int>(0, (a, b) => a + b.abs()) ~/
-            _releaseDeviationsUs.length;
+              _releaseDeviationsUs.length;
     return PracticeResult(
-      effectiveDuration: Duration(microseconds: _ctx.scheduler.nowUs().clamp(0, 1 << 30)),
+      effectiveDuration: Duration(
+        microseconds: _ctx.scheduler.nowUs().clamp(0, 1 << 30),
+      ),
       quality: (jumps / 20).clamp(0.0, 1.0),
       merit: merit,
       completed: true,
@@ -217,21 +237,13 @@ class CrossRiverSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            _hudText,
-            style: const TextStyle(color: Color(0x33E8DFC8), fontSize: 15, letterSpacing: 4),
-          ),
-          const SizedBox(height: 24),
-          Text(
-            _pressed ? '…' : '',
-            style: const TextStyle(color: Color(0x55E8DFC8), fontSize: 22),
-          ),
-        ],
-      ),
+    return PracticeScene(
+      kind: PracticeSceneKind.crossRiver,
+      title: '过 河',
+      subtitle: _pressed ? '心中复现 · 到时松手' : _hudText,
+      active: _pressed,
+      count: _jumpNo,
+      accent: _awaitingSecondSegment ? 1 : 0.45,
     );
   }
 

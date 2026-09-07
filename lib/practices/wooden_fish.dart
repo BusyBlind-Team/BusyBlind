@@ -9,6 +9,7 @@ import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
 import '../widgets/interval_chart.dart';
+import '../widgets/practice_scene.dart';
 
 /// 木鱼（专注 · 节奏保持）。
 ///
@@ -78,6 +79,7 @@ class WoodenFishSession extends PracticeSession {
       _muffled = false;
     }
     _ctx.sounds.play(_muffled ? 'muyu_muffled' : SoundCatalog.muyuKey);
+    notifyVisualChanged();
 
     // 每三分之一：极轻的磬远远应一声。
     if (_strikes % _chimeEvery == 0 && _strikes < _totalStrikes) {
@@ -104,8 +106,7 @@ class WoodenFishSession extends PracticeSession {
 
   PracticeResult _buildResult(FinishReason r) {
     final totalUs = _intervalsUs.fold<int>(0, (a, b) => a + b);
-    final meanUs =
-        _intervalsUs.isEmpty ? 0.0 : totalUs / _intervalsUs.length;
+    final meanUs = _intervalsUs.isEmpty ? 0.0 : totalUs / _intervalsUs.length;
     final stdUs = _intervalsUs.isEmpty
         ? 0.0
         : _std(_intervalsUs.map((e) => e.toDouble()).toList());
@@ -151,39 +152,49 @@ class WoodenFishSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    return Center(
-      child: Text(
-        _strikes == 0 ? '第 一 声 由 你 敲 响' : '$_strikes / $_totalStrikes',
-        style: const TextStyle(color: Color(0x33E8DFC8), fontSize: 16, letterSpacing: 4),
-      ),
+    return PracticeScene(
+      kind: PracticeSceneKind.woodenFish,
+      title: '木 鱼',
+      subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '$_strikes / $_totalStrikes 声',
+      progress: _strikes / _totalStrikes,
+      active: _strikes > 0,
+      count: _strikes,
+      accent: _muffled ? 0.2 : 1,
     );
   }
 
   @override
   Widget buildSummary(BuildContext c, PracticeResult r) {
     final m = r.metrics;
-    final intervals =
-        ((m['intervalsMs'] as List?) ?? const []).cast<int>().map((e) => e.toDouble()).toList();
+    final intervals = ((m['intervalsMs'] as List?) ?? const [])
+        .cast<int>()
+        .map((e) => e.toDouble())
+        .toList();
     final totalMs = m['totalMs'] as int? ?? 0;
     final diffSec = (totalMs - _totalStrikes * 1000) / 1000.0;
     final verdict = !r.completed
         ? '中途收手'
         : diffSec < -2
-            ? '心急了——整体偏快 ${diffSec.abs().toStringAsFixed(1)} 秒'
-            : diffSec > 2
-                ? '走神了——整体偏慢 ${diffSec.toStringAsFixed(1)} 秒'
-                : '节奏守得很稳';
+        ? '心急了——整体偏快 ${diffSec.abs().toStringAsFixed(1)} 秒'
+        : diffSec > 2
+        ? '走神了——整体偏慢 ${diffSec.toStringAsFixed(1)} 秒'
+        : '节奏守得很稳';
     final stdMs = ((m['intervalStdUs'] as num?) ?? 0) / 1000.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(verdict, textAlign: TextAlign.center,
-            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15)),
+        Text(
+          verdict,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15),
+        ),
         const SizedBox(height: 16),
-        const Text('间隔曲线（虚线为目标 1 秒）',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: Color(0x66E8DFC8), fontSize: 12)),
+        const Text(
+          '间隔曲线（虚线为目标 1 秒）',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: Color(0x66E8DFC8), fontSize: 12),
+        ),
         const SizedBox(height: 8),
         IntervalChart(valuesMs: intervals, targetMs: _targetIntervalUs / 1000),
         const SizedBox(height: 16),
@@ -211,8 +222,14 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13)),
-          Text(value, style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14)),
+          Text(
+            label,
+            style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13),
+          ),
+          Text(
+            value,
+            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14),
+          ),
         ],
       ),
     );
