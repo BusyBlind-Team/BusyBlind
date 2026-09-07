@@ -118,12 +118,14 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   }
 
   /// 统一输入分发：原始 down/up 先进 SessionRecorder（对账的原始时间线），
-  /// 再交给玩法做语义判定。
+  /// 再交给玩法做语义判定。move 只服务视觉层（如钓花浮标），不进时间线。
   void _dispatchInput(PointerEvent e, PointerPhase phase) {
     final ctx = _ctx;
     if (ctx == null || !_running || _finishing) return;
     final event = ctx.input.capture(e, ctx.scheduler.nowUs);
-    ctx.recorder.log('input:${phase.name}', {'sessionUs': event.sessionUs});
+    if (phase != PointerPhase.move) {
+      ctx.recorder.log('input:${phase.name}', {'sessionUs': event.sessionUs});
+    }
     _session.onInput(event);
   }
 
@@ -162,7 +164,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     for (final reward in result.extraRewards) {
       switch (reward.kind) {
         case RewardKind.petal:
-          store.addPetal(reward.id);
+          // 花瓣不分物种（待对齐清单 #6），每片 +1 总数。
+          store.addPetals(1);
         case RewardKind.slip:
           break;
       }
@@ -224,6 +227,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       child = Listener(
         behavior: HitTestBehavior.opaque,
         onPointerDown: (e) => _dispatchInput(e, PointerPhase.down),
+        onPointerMove: (e) => _dispatchInput(e, PointerPhase.move),
         onPointerUp: (e) => _dispatchInput(e, PointerPhase.up),
         onPointerCancel: (e) => _dispatchInput(e, PointerPhase.cancel),
         child: _BlackScaffold(

@@ -1,8 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
+
+import '../domain/petals.dart';
 
 /// 本地优先的数据层（设计方案原则 4）。
 ///
@@ -40,6 +43,16 @@ class AppStore extends ChangeNotifier {
     if (!tutorialDone && hasHistory) {
       data['tutorialDone'] = true;
     }
+    // 花瓣口径迁移（待对齐清单 #6）：旧版按物种 Map<String,int> 存储，
+    // 新版花瓣不分物种只记总数——汇总旧 Map 各键值即可，不丢存量。
+    final petals = data['petals'];
+    if (petals is Map) {
+      var total = 0;
+      for (final v in petals.values) {
+        total += v as int? ?? 0;
+      }
+      data['petals'] = total;
+    }
     return data;
   }
 
@@ -51,7 +64,7 @@ class AppStore extends ChangeNotifier {
     'tutorialDone': data['tutorialDone'] ?? false,
     'meditation': data['meditation'] ?? {'date': '', 'earnedToday': 0},
     'dailySign': data['dailySign'] ?? {'lastDate': '', 'slips': []},
-    'petals': data['petals'] ?? <String, int>{},
+    'petals': data['petals'] ?? 0,
     'flowers': data['flowers'] ?? <String>[],
     'achievements': data['achievements'] ?? <String>[],
     'pendingMerit': data['pendingMerit'] ?? <Object?>[],
@@ -141,7 +154,10 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- 每日抽签（每日一次；奖励口径按设计方案建议 b：签文收藏，不发修为）----
+  // ---- 每日抽签（每日一次；待对齐清单 #4：+10 修为 + 树叶签文收藏）----
+
+  /// 抽签固定修为奖励（待对齐清单 #4 拍板：抽签还是 +10 修为）。
+  static const int kSignMerit = 10;
 
   String? get lastSignDate => (_data['dailySign']! as Map)['lastDate'] as String?;
 
@@ -159,35 +175,38 @@ class AppStore extends ChangeNotifier {
       'text': text,
       'fortune': fortune,
     });
+    _data['merit'] = merit + kSignMerit;
     _save();
     notifyListeners();
   }
 
-  // ---- 花瓣与图鉴 ----
+  // ---- 花瓣与图鉴（待对齐清单 #6：花瓣不分物种；按 4/5/6/8 瓣档位合成）----
 
-  Map<String, int> get petals => (_data['petals']! as Map).cast<String, int>();
+  int get petalCount => _data['petals']! as int;
 
   List<String> get flowers => (_data['flowers']! as List).cast<String>();
 
-  void addPetal(String speciesId) {
-    final p = _data['petals']! as Map;
-    p[speciesId] = (p[speciesId] as int? ?? 0) + 1;
+  void addPetals(int n) {
+    if (n == 0) return;
+    _data['petals'] = petalCount + n;
     _save();
     notifyListeners();
   }
 
-  /// 同种花瓣合成一朵花（待对齐：3 朵合一）。成功则扣花瓣并记入图鉴。
-  bool fuseFlower(String speciesId, {int need = 3}) {
-    final p = _data['petals']! as Map;
-    if ((p[speciesId] as int? ?? 0) < need) return false;
-    p[speciesId] = (p[speciesId] as int) - need;
+  /// 投入 [tierPetalCount] 片花瓣合成一朵花：从对应档位花池按稀有度抽取。
+  /// 花瓣不足或档位无效返回 null（不扣花瓣）；成功则扣花瓣并记入图鉴。
+  FlowerSpecies? craftFlower(int tierPetalCount, {Random? rng}) {
+    if (petalCount < tierPetalCount) return null;
+    final drawn = drawFlower(tierPetalCount, rng ?? Random());
+    if (drawn == null) return null;
+    _data['petals'] = petalCount - tierPetalCount;
     final flowers = _data['flowers']! as List;
-    if (!flowers.contains(speciesId)) {
-      flowers.add(speciesId);
+    if (!flowers.contains(drawn.id)) {
+      flowers.add(drawn.id);
     }
     _save();
     notifyListeners();
-    return true;
+    return drawn;
   }
 
   // ---- 成就 ----

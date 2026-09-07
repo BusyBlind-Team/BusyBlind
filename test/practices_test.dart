@@ -115,7 +115,7 @@ void main() {
   });
 
   group('木鱼', () {
-    test('108 声整间隔 → quality 满格，修为 12，里程碑磬两次', () async {
+    test('108 声整间隔 → 偏移 0，修为 15，里程碑磬两次', () async {
       FinishReason? reason;
       final (ctx, _, sounds, _) = makeContext((r) => reason = r);
       final session = WoodenFishSession();
@@ -130,20 +130,39 @@ void main() {
       final result = await session.finish(reason!);
       expect(result.metrics['strikes'], 108);
       expect(result.quality, 1.0);
-      expect(result.merit, 12);
+      // 待对齐 #5：15 − 偏移秒；完美节奏偏移 0（107 个 1s 间隔 = 满拍总时长）。
+      expect(result.merit, 15);
       // 每 36 声一声极轻的磬：第 36、72 声（第 108 声直接收口）。
       expect(sounds.played.where((k) => k == 'chime_soft').length, 2);
       expect(sounds.played.where((k) => k == 'muyu').length, 108);
     });
 
-    test('节奏不稳 → quality 下降，修为低于基准', () async {
+    test('整体偏慢 5.35 秒 → 修为 = round(15 − 5.35) = 10', () async {
       FinishReason? reason;
       final (ctx, _, _, _) = makeContext((r) => reason = r);
       final session = WoodenFishSession();
       await session.prepare(ctx);
       session.start();
 
-      // ±300ms 抖动的间隔序列。
+      // 每拍 1.05s：总时长 107 × 1.05 = 112.35s，偏移 5.35s。
+      var t = 0;
+      for (var i = 1; i <= 108; i++) {
+        t += 1050000;
+        session.onInput(tap(t));
+      }
+      expect(reason, FinishReason.completed);
+      final result = await session.finish(reason!);
+      expect(result.merit, 10);
+    });
+
+    test('抖动节奏 → 修为随偏移扣减但不为负；中途收手不发修为', () async {
+      FinishReason? reason;
+      final (ctx, _, _, _) = makeContext((r) => reason = r);
+      final session = WoodenFishSession();
+      await session.prepare(ctx);
+      session.start();
+
+      // ±300ms 抖动的间隔序列（均值 1s，偏移只会来自随机游走）。
       final rng = Random(3);
       var t = 0;
       for (var i = 0; i < 108; i++) {
@@ -152,53 +171,119 @@ void main() {
       }
       expect(reason, FinishReason.completed);
       final result = await session.finish(reason!);
-      expect(result.merit, lessThan(12));
-      expect(result.merit, greaterThan(0));
+      expect(result.merit, inInclusiveRange(0, 15));
+
+      // 中途收手：没"完成一次"，不发修为（修为只来自真实完成）。
+      final (ctx2, _, _, _) = makeContext((_) {});
+      final session2 = WoodenFishSession();
+      await session2.prepare(ctx2);
+      session2.start();
+      for (var i = 0; i < 10; i++) {
+        session2.onInput(tap(i * 1000000 + 500000));
+      }
+      final result2 = await session2.finish(FinishReason.cancelled);
+      expect(result2.merit, 0);
     });
   });
 
-  group('数雨', () {
-    test('事件序列满足反作弊约束：最小间隔 800ms，10 秒窗口 ≤3 个', () async {
-      FinishReason? reason;
-      final (ctx, _, _, _) = makeContext((r) => reason = r);
+  group('数雨（待对齐 #2/#8：删钟声 · 3–10 秒一滴 · 3 分钟 · 听完报数）', () {
+    test('雨滴序列：间隔 3–10 秒，3 分钟内，无钟声', () async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
       final session = CountRainSession();
       await session.prepare(ctx);
 
       final rains = session.rainTimesUs;
-      final bells = session.bellTimesUs;
-      expect(rains.length, inInclusiveRange(18, 28));
-      expect(bells.length, inInclusiveRange(6, 14));
-
-      final merged = [...rains, ...bells]..sort();
-      for (var i = 1; i < merged.length; i++) {
-        expect(merged[i] - merged[i - 1], greaterThanOrEqualTo(800000),
-            reason: '事件最小间隔被破坏 @$i');
+      var prev = 0;
+      for (final t in rains) {
+        expect(t - prev, inInclusiveRange(3000000, 10000000), reason: '间隔越界 @$t');
+        prev = t;
       }
-      for (var i = 0; i + 3 < merged.length; i++) {
-        expect(merged[i + 3] - merged[i], greaterThanOrEqualTo(10000000),
-            reason: '10 秒窗口内超过 3 个事件 @$i');
-      }
-
-      session.start();
-      final result = await session.finish(FinishReason.completed);
-      expect(reason, isNull); // 计时到点由调度器收口，此处手动结算
-      expect(result.metrics['actualRain'], rains.length);
-      expect(result.merit, greaterThanOrEqualTo(5)); // 下限 5
+      expect(rains.last, lessThan(180000000));
+      // 期望 ~28 滴（180/6.5），极端也在 15–45 之间。
+      expect(rains.length, inInclusiveRange(15, 45));
+      scheduler.dispose();
     });
 
-    test('轻点记雨、长按记钟，误差驱动修为', () async {
-      FinishReason? reason;
-      final (ctx, _, _, _) = makeContext((r) => reason = r);
-      final session = CountRainSession();
-      await session.prepare(ctx);
-      session.start();
+    test('3 分钟后进入报数页，不自动收口；报数后按 10 − 误差 结算', () {
+      fakeAsync((async) {
+        FinishReason? reason;
+        final (ctx, clock, _, scheduler) = makeContext((r) => reason = r);
+        final session = CountRainSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
 
-      // 全部漏数：误差 100% → 修为触底 5。
-      final result = await session.finish(FinishReason.completed);
-      expect(reason, isNull);
-      expect(result.metrics['userRain'], 0);
-      expect(result.metrics['userBell'], 0);
-      expect(result.merit, 5);
+        clock.advanceUs(180000000);
+        async.elapse(const Duration(milliseconds: 50));
+        expect(session.askingReport, isTrue);
+        expect(reason, isNull); // 报数页等人报数，不自动收口
+
+        // 精确报数：修为满额 10。
+        final actual = session.rainTimesUs.length;
+        session.submitReport(actual);
+        expect(reason, FinishReason.completed);
+
+        PracticeResult? result;
+        session.finish(reason!).then((r) => result = r);
+        async.flushMicrotasks();
+        final settled = result;
+        expect(settled, isNotNull);
+        expect(settled!.completed, isTrue);
+        expect(settled.merit, 10);
+        expect(settled.metrics['error'], 0);
+        scheduler.dispose();
+      });
+    });
+
+    test('报数偏差按绝对滴数扣分、下限 0；未报数收口不发修为', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = CountRainSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        clock.advanceUs(180000000);
+        async.elapse(const Duration(milliseconds: 50));
+        final actual = session.rainTimesUs.length;
+        session.submitReport(actual + 4); // 误差 4 滴 → 10 − 4 = 6
+        PracticeResult? result;
+        session.finish(FinishReason.completed).then((r) => result = r);
+        async.flushMicrotasks();
+        final settledA = result;
+        expect(settledA!.merit, 6);
+
+        // 多报 20 滴：10 − 20 < 0 → 下限 0。
+        final (ctx2, clock2, _, scheduler2) = makeContext((_) {});
+        final session2 = CountRainSession();
+        session2.prepare(ctx2);
+        scheduler2.begin();
+        session2.start();
+        clock2.advanceUs(180000000);
+        async.elapse(const Duration(milliseconds: 50));
+        session2.submitReport(session2.rainTimesUs.length + 20);
+        PracticeResult? result2;
+        session2.finish(FinishReason.completed).then((r) => result2 = r);
+        async.flushMicrotasks();
+        final settledB = result2;
+        expect(settledB!.merit, 0);
+
+        // 没听完就退出：未报数，不发修为。
+        final (ctx3, _, _, scheduler3) = makeContext((_) {});
+        final session3 = CountRainSession();
+        session3.prepare(ctx3);
+        scheduler3.begin();
+        session3.start();
+        PracticeResult? result3;
+        session3.finish(FinishReason.cancelled).then((r) => result3 = r);
+        async.flushMicrotasks();
+        final settledC = result3;
+        expect(settledC!.completed, isFalse);
+        expect(settledC.merit, 0);
+        scheduler.dispose();
+        scheduler2.dispose();
+        scheduler3.dispose();
+      });
     });
   });
 

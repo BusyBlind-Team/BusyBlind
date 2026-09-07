@@ -17,7 +17,9 @@ import '../widgets/practice_scene.dart';
 /// 锚点），硬判定只有"松手时刻 − 咚时刻 ≈ T"。
 /// 判定窗口 max(T×15%, 180ms)；窗口 1.5 倍内 = 踩滑（不死，难度不递进）；
 /// 超出 = 失败结束。每 5 跳扩大 T 范围并引入"叮-咚-咚"变奏（复现第二段间隔）。
-/// 修为 = min(跳数 × 0.6, 20)。判定一律用音频时间戳，不用墙钟。
+/// 修为（待对齐清单 #5）：每跳一次得分 = 100 × (1 − 偏移率)，偏移率 =
+/// |松手偏差| / T；结束后修为 = 总分 / 100（四舍五入）。判定一律用音频
+/// 时间戳，不用墙钟。
 class CrossRiverSession extends PracticeSession {
   static const int _minTUs = 600000;
   static const int _maxTUs = 2000000;
@@ -42,6 +44,7 @@ class CrossRiverSession extends PracticeSession {
   // 本跳输入轨迹。
   bool _pressed = false;
   final List<int> _releaseDeviationsUs = [];
+  double _scoreTotal = 0; // 待对齐清单 #5：每跳 100×(1−偏移率) 累计
 
   bool _finished = false;
   String _hudText = '听 叮 咚 · 复 现 间 隔';
@@ -140,6 +143,9 @@ class CrossRiverSession extends PracticeSession {
         : _dongAnchorUs;
     final dev = releaseUs - anchor - t;
     _releaseDeviationsUs.add(dev);
+    // 待对齐清单 #5：本跳得分 = 100 × (1 − 偏移率)，偏移率上限 1（落水那跳得 0 分起）。
+    final devRate = (dev.abs() / t).clamp(0.0, 1.0);
+    _scoreTotal += 100 * (1 - devRate);
     final w = _windowFor(t);
 
     if (dev.abs() <= w) {
@@ -183,6 +189,8 @@ class CrossRiverSession extends PracticeSession {
           'at': e.sessionUs,
           'leadMs': (e.sessionUs - _dongAnchorUs) ~/ 1000,
         });
+      case PointerPhase.move:
+        break; // 按住挪动不参与判定。
       case PointerPhase.up:
       case PointerPhase.cancel:
         if (_pressed) {
@@ -215,7 +223,8 @@ class CrossRiverSession extends PracticeSession {
 
   PracticeResult _buildResult(FinishReason r) {
     final jumps = max(_jumpNo - 1, 0); // 最后一跳落水不计
-    final merit = min((jumps * 0.6).round(), 20);
+    // 待对齐清单 #5：修为 = 总分 / 100（四舍五入，下限 0）。
+    final merit = max(_scoreTotal / 100, 0).round();
     final avgDevUs = _releaseDeviationsUs.isEmpty
         ? 0
         : _releaseDeviationsUs.fold<int>(0, (a, b) => a + b.abs()) ~/
@@ -229,6 +238,7 @@ class CrossRiverSession extends PracticeSession {
       completed: true,
       metrics: {
         'jumps': jumps,
+        'score': _scoreTotal.round(),
         'avgDeviationUs': avgDevUs,
         'deviationsMs': _releaseDeviationsUs.map((e) => e ~/ 1000).toList(),
       },
@@ -280,6 +290,12 @@ class CrossRiverSession extends PracticeSession {
         const SizedBox(height: 16),
         Text(
           '平均偏差 ${(r.metrics['avgDeviationUs'] as num? ?? 0) / 1000} ms',
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          '过河总分 ${r.metrics['score'] ?? 0}（满分 = 步数 × 100）',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13),
         ),

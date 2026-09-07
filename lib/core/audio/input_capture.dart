@@ -2,7 +2,7 @@ import 'package:flutter/gestures.dart';
 
 import 'audio_clock.dart';
 
-enum PointerPhase { down, up, cancel }
+enum PointerPhase { down, move, up, cancel }
 
 /// 统一输入事件：带音频时间戳。
 ///
@@ -14,6 +14,7 @@ class InputEvent {
     required this.absAudioUs,
     required this.sessionUs,
     required this.rawTimeStamp,
+    this.position,
   });
 
   final PointerPhase phase;
@@ -22,6 +23,10 @@ class InputEvent {
 
   /// 原始事件时间戳，保留供未来更精细的补偿复算。
   final Duration rawTimeStamp;
+
+  /// 事件在宿主界面内的逻辑坐标（相对宿主 Listener）。
+  /// 仅钓花浮标（待对齐清单 #7）等视觉层需要，判定不依赖它。
+  final Offset? position;
 }
 
 /// 把 Flutter pointer 事件转成带音频时间戳的统一输入。
@@ -36,6 +41,7 @@ class InputCapture {
     return InputEvent(
       phase: switch (event) {
         PointerDownEvent() => PointerPhase.down,
+        PointerMoveEvent() => PointerPhase.move,
         PointerUpEvent() => PointerPhase.up,
         PointerCancelEvent() => PointerPhase.cancel,
         _ => PointerPhase.cancel,
@@ -43,6 +49,7 @@ class InputCapture {
       absAudioUs: absUs,
       sessionUs: sessionNowUs(),
       rawTimeStamp: event.timeStamp,
+      position: event.localPosition,
     );
   }
 }

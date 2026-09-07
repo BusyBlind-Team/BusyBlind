@@ -4,14 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
-import '../../domain/petals.dart';
+import '../../data/app_store.dart';
 import '../../domain/sign_slips.dart';
 import '../../theme.dart';
 
-/// 签（每日仅限一次）：得一张写在树叶上的签文。
+/// 签（每日仅限一次）：+10 修为，得一张写在树叶上的签文。
 ///
-/// 奖励口径（设计方案待对齐 #4）：按建议 b 执行——发一张签文收藏 +
-/// 一片随机花瓣（凑图鉴），不发修为，保持"修为只来自真实专注"的纯净。
+/// 奖励口径（待对齐清单 #4 拍板）：抽签还是 +10 修为，并获得树叶签文
+/// 收藏——原"改发花瓣"的建议不再执行。
 class SignPage extends ConsumerStatefulWidget {
   const SignPage({super.key});
 
@@ -21,7 +21,6 @@ class SignPage extends ConsumerStatefulWidget {
 
 class _SignPageState extends ConsumerState<SignPage> {
   SignSlip? _todaySlip;
-  PetalSpecies? _rewardPetal;
   bool _drawing = false;
 
   void _draw() {
@@ -30,14 +29,11 @@ class _SignPageState extends ConsumerState<SignPage> {
     Future.delayed(const Duration(milliseconds: 700), () {
       final store = ref.read(storeProvider);
       final slip = kSignSlips[Random().nextInt(kSignSlips.length)];
-      final petal = kPetalSpecies[Random().nextInt(kPetalSpecies.length)];
       store.recordSign(slipId: slip.id, text: slip.text, fortune: slip.fortune);
-      store.addPetal(petal.id);
       if (mounted) {
         setState(() {
           _drawing = false;
           _todaySlip = slip;
-          _rewardPetal = petal;
         });
       }
     });
@@ -64,7 +60,8 @@ class _SignPageState extends ConsumerState<SignPage> {
                       ),
                       const SizedBox(height: 8),
                       const Text(
-                        '今日还未抽签。签文与一片花瓣会收进你的收藏。',
+                        '今日还未抽签。抽签得十点修为，'
+                        '一张写在树叶上的签文会收进你的收藏。',
                         style: TextStyle(color: AppTheme.inkDim, fontSize: 13),
                       ),
                       const SizedBox(height: 28),
@@ -82,7 +79,6 @@ class _SignPageState extends ConsumerState<SignPage> {
                 : _LeafSlip(
                     text: _todaySlip?.text ?? (lastSlip?['text'] as String? ?? ''),
                     fortune: _todaySlip?.fortune ?? (lastSlip?['fortune'] as String? ?? ''),
-                    rewardPetal: _rewardPetal,
                   ),
       ),
     );
@@ -90,11 +86,10 @@ class _SignPageState extends ConsumerState<SignPage> {
 }
 
 class _LeafSlip extends StatelessWidget {
-  const _LeafSlip({required this.text, required this.fortune, this.rewardPetal});
+  const _LeafSlip({required this.text, required this.fortune});
 
   final String text;
   final String fortune;
-  final PetalSpecies? rewardPetal;
 
   @override
   Widget build(BuildContext context) {
@@ -127,13 +122,11 @@ class _LeafSlip extends StatelessWidget {
             fortune,
             style: const TextStyle(color: AppTheme.gold, fontSize: 16, letterSpacing: 4),
           ),
-          if (rewardPetal != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              '附赠花瓣：${rewardPetal!.name}',
-              style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
-            ),
-          ],
+          const SizedBox(height: 12),
+          Text(
+            '修为 +${AppStore.kSignMerit}',
+            style: const TextStyle(color: AppTheme.gold, fontSize: 13),
+          ),
         ],
       ),
     );

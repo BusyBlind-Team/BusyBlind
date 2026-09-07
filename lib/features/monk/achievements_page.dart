@@ -52,22 +52,38 @@ class AchievementsPage extends ConsumerWidget {
             ),
           const SizedBox(height: 20),
           const _SectionTitle('花瓣图鉴'),
-          const Text(
-            '钓花钓起的花瓣按种类收藏；同种花瓣可合成一朵花。好友交换走"友"（暂未开放）。',
-            style: TextStyle(color: AppTheme.inkFaint, fontSize: 12),
+          Text(
+            '花瓣不分种类。攒够瓣数即可合成一朵花：'
+            '同一档内按稀有度抽取（常见易得、稀有难遇、奇珍可遇不可求）。\n'
+            '当前花瓣 ${store.petalCount} 片。好友交换走"友"（暂未开放）。',
+            style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
           ),
           const SizedBox(height: 8),
-          for (final species in kPetalSpecies)
-            PetalRow(
+          for (final tier in kCraftTiers)
+            CraftRow(
+              tierPetalCount: tier,
+              petalCount: store.petalCount,
+              onCraft: () => _craft(context, ref, tier),
+            ),
+          const SizedBox(height: 12),
+          for (final species in kFlowerSpecies)
+            FlowerRow(
               species: species,
-              count: store.petals[species.id] ?? 0,
-              flowerOwned: store.flowers.contains(species.id),
-              onFuse: () => ref
-                  .read(storeProvider)
-                  .fuseFlower(species.id, need: kPetalsPerFlower),
+              owned: store.flowers.contains(species.id),
             ),
           const SizedBox(height: 32),
         ],
+      ),
+    );
+  }
+
+  void _craft(BuildContext context, WidgetRef ref, int tier) {
+    final drawn = ref.read(storeProvider).craftFlower(tier);
+    if (drawn == null) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('合成了一朵${drawn.name}花（${drawn.rarityLabel}）'),
+        backgroundColor: const Color(0xFF2A2620),
       ),
     );
   }

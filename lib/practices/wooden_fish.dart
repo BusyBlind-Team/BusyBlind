@@ -17,13 +17,20 @@ import '../widgets/practice_scene.dart';
 /// - 无外部节拍音——节拍必须来自用户内心。
 /// - 过程反馈仅两处：每 36 下极轻磬；偏差累积超阈值时木鱼音色变闷。
 /// - 结算：心急/走神判定 + 间隔曲线 + 稳定性标准差。
-/// - 修为：12 × quality，quality 由稳定性而非总时长决定。
+/// - 修为（待对齐清单 #5）：完成一次 = 15 − 偏移时长（秒），四舍五入，
+///   下限 0；偏移 = 总用时与 108 秒的差值的绝对值。未完成不发修为。
 class WoodenFishSession extends PracticeSession {
   static const int _totalStrikes = 108;
   static const int _targetIntervalUs = 1000000;
   static const int _chimeEvery = 36;
   static const int _muffleThresholdUs = 1200000;
   static const int _unmuffleThresholdUs = 600000;
+  static const int _meritBase = 15;
+
+  /// 满拍总时长：108 声之间只有 107 个间隔（首声不占间隔），
+  /// 完美节奏从第一声到第一百零八声历经 107 秒——偏移判定的基准。
+  @visibleForTesting
+  static int get idealTotalUs => (_totalStrikes - 1) * _targetIntervalUs;
 
   late PracticeContext _ctx;
 
@@ -42,7 +49,7 @@ class WoodenFishSession extends PracticeSession {
     tags: [TrainingTag.focus, TrainingTag.rhythm],
     eyeMode: EyeMode.eyesClosed,
     typicalLength: Duration(seconds: 108),
-    meritBase: 12,
+    meritBase: _meritBase,
     iconKey: 'wooden_fish',
     rulesText: '没有节拍器。闭上眼，在心里守住一秒一击的节奏，敲满一百零八声。',
   );
@@ -110,10 +117,14 @@ class WoodenFishSession extends PracticeSession {
     final stdUs = _intervalsUs.isEmpty
         ? 0.0
         : _std(_intervalsUs.map((e) => e.toDouble()).toList());
-    // quality 由稳定性决定：标准差 ≤80ms 满质量，≥480ms 降到底。
+    // quality 由稳定性决定：标准差 ≤80ms 满质量，≥480ms 降到底（展示用，
+    // 修为不再由它驱动）。
     final quality = (1.0 - (stdUs - 80000) / 400000).clamp(0.05, 1.0);
     final completed = r == FinishReason.completed;
-    final merit = completed ? (12 * quality).round() : (6 * quality).round();
+    // 待对齐清单 #5：修为 = 15 − 偏移时长（秒），四舍五入，下限 0。
+    // 偏移 = 总用时偏离满拍总时长的绝对值（快了叫心急，慢了叫走神，同样扣）。
+    final offsetSec = (totalUs - idealTotalUs).abs() / 1000000;
+    final merit = completed ? max(0, (_meritBase - offsetSec).round()) : 0;
 
     var rush = 0;
     var drift = 0;
@@ -171,7 +182,7 @@ class WoodenFishSession extends PracticeSession {
         .map((e) => e.toDouble())
         .toList();
     final totalMs = m['totalMs'] as int? ?? 0;
-    final diffSec = (totalMs - _totalStrikes * 1000) / 1000.0;
+    final diffSec = (totalMs - idealTotalUs ~/ 1000) / 1000.0;
     final verdict = !r.completed
         ? '中途收手'
         : diffSec < -2

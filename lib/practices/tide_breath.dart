@@ -129,6 +129,8 @@ class TideBreathSession extends PracticeSession {
       case PointerPhase.down:
         _pressed = true;
         _pressStartUs = e.sessionUs;
+      case PointerPhase.move:
+        break; // 按住挪动不改变按住状态。
       case PointerPhase.up:
       case PointerPhase.cancel:
         _pressed = false;

@@ -49,7 +49,7 @@ class Reward {
 
   final RewardKind kind;
 
-  /// 花瓣=物种 id；签文=文案 id。
+  /// 花瓣=通用记号（花瓣已不分物种，id 仅作展示键）；签文=文案 id。
   final String id;
   final String label;
 }

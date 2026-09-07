@@ -84,9 +84,8 @@ final List<AchievementDef> kAchievements = [
   AchievementDef(
     id: 'petals_5',
     title: '拾花人',
-    description: '图鉴集齐 5 种花瓣',
-    test: (e) =>
-        e.store.petals.keys.where((k) => (e.store.petals[k] ?? 0) > 0).length >= 5,
+    description: '图鉴集齐 5 种花',
+    test: (e) => e.store.flowers.length >= 5,
   ),
   AchievementDef(
     id: 'sessions_7',
