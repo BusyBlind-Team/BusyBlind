@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 
 import '../core/audio/input_capture.dart';
+import '../core/audio/sound_catalog.dart';
 import '../core/practice/practice_manifest.dart';
 import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
@@ -138,7 +139,7 @@ class FishPetalsSession extends PracticeSession {
   void _hook(int now) {
     _hookAtUs = now;
     _hookIsPetal = _rng.nextDouble() < _petalChance;
-    _ctx.sounds.play(_hookIsPetal ? 'fish_ding' : 'fish_dong', gain: 0.9);
+    _ctx.sounds.play(_hookIsPetal ? SoundCatalog.fishDingKey : SoundCatalog.fishDongKey, gain: 0.9);
     _ctx.recorder.log('hook', {
       'petal': _hookIsPetal,
       'waitMs': (now - _castStartUs) ~/ 1000,
@@ -181,7 +182,7 @@ class FishPetalsSession extends PracticeSession {
           _state = _RodState.casting;
           _castStartUs = now;
           _casts++;
-          _ctx.sounds.play('swish', gain: 0.6);
+          _ctx.sounds.play(SoundCatalog.swishKey, gain: 0.6);
           _ctx.recorder.log('cast', {'at': now});
           notifyVisualChanged();
         }
@@ -201,7 +202,7 @@ class FishPetalsSession extends PracticeSession {
                 label: '${species.name}花瓣',
               ),
             );
-            _ctx.sounds.play('wind_chime', gain: 0.5);
+            _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.5);
             _ctx.recorder.log('catch', {'species': species.id});
           } else if (!_hookIsPetal) {
             _miscatch++;

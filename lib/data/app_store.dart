@@ -26,7 +26,21 @@ class AppStore extends ChangeNotifier {
         data = {};
       }
     }
-    return AppStore._(_defaults(data), file);
+    return AppStore._(applyMigrations(_defaults(data)), file);
+  }
+
+  /// 数据迁移：老版本升级后的字段口径修正。
+  ///
+  /// 教程门控上线时，已有修行记录/修为的老用户不应被强制重看教程。
+  @visibleForTesting
+  static Map<String, Object?> applyMigrations(Map<String, Object?> data) {
+    final tutorialDone = data['tutorialDone']! as bool;
+    final hasHistory =
+        (data['sessions']! as List).isNotEmpty || (data['merit']! as int) > 0;
+    if (!tutorialDone && hasHistory) {
+      data['tutorialDone'] = true;
+    }
+    return data;
   }
 
   /// 测试与预览用：不落盘。

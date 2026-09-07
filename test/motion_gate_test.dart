@@ -64,12 +64,32 @@ void main() {
     });
   });
 
-  group('AppStore.tutorialDone', () {
-    test('默认未完成；置位后可读', () {
-      final store = AppStore.inMemory();
-      expect(store.tutorialDone, isFalse);
-      store.tutorialDone = true;
-      expect(store.tutorialDone, isTrue);
+  group('AppStore.applyMigrations（教程门控上线的老用户迁移）', () {
+    test('有修行记录的老用户：自动标记教程完成，升级后不被强制重看', () {
+      final data = AppStore.applyMigrations({
+        'tutorialDone': false,
+        'merit': 30,
+        'sessions': <Object?>[{'practiceId': 'wooden_fish'}],
+      });
+      expect(data['tutorialDone'], isTrue);
+    });
+
+    test('零修为无记录，但已有记录表为空的新用户：保持未完成，首启进教程', () {
+      final data = AppStore.applyMigrations({
+        'tutorialDone': false,
+        'merit': 0,
+        'sessions': <Object?>[],
+      });
+      expect(data['tutorialDone'], isFalse);
+    });
+
+    test('已显式完成教程的用户：迁移不动它', () {
+      final data = AppStore.applyMigrations({
+        'tutorialDone': true,
+        'merit': 0,
+        'sessions': <Object?>[],
+      });
+      expect(data['tutorialDone'], isTrue);
     });
   });
 }

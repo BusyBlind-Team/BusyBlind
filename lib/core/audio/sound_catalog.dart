@@ -17,6 +17,10 @@ abstract final class SoundCatalog {
   static const String muyuKey = 'muyu';
   static const String heDingKey = 'he_ding';
   static const String heDongKey = 'he_dong';
+  static const String fishDingKey = 'fish_ding';
+  static const String fishDongKey = 'fish_dong';
+  static const String windChimeKey = 'wind_chime';
+  static const String swishKey = 'swish';
   static const String tideLoopKey = 'tide_loop';
   static const String forestLoopKey = 'forest_loop';
 

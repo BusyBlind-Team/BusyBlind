@@ -20,7 +20,7 @@ import 'motion_gate.dart';
 /// 退出即回主界面。反挂机三重判定（设计方案 6.4）：
 /// 1. 进入后台立即暂停计时（本页生命周期观察）；
 /// 2. 每 5 分钟一声极轻的磬，30 秒内轻触任意处确认在场，超时则暂停计时（不惩罚）；
-/// 3. 陀螺仪检测持续大幅位移暂停计时（v0.1 未接入传感器，见 TODO）。
+/// 3. 持续大幅位移（如走路）暂停计时——MotionGate 加速度窗口判定。
 class MeditationPage extends ConsumerStatefulWidget {
   const MeditationPage({super.key});
 

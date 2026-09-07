@@ -34,8 +34,8 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
       meaning: '打坐时确认你还在（30 秒内轻触任意处）',
       keys: [SoundCatalog.chimeSoftKey],
     ),
-    (sound: '叮 —— 咚', meaning: '过河：复现这个间隔', keys: ['he_ding', 'he_dong']),
-    (sound: '叮 / 咚', meaning: '钓花：花瓣 / 杂物，叮则收手', keys: ['fish_ding', 'fish_dong']),
+    (sound: '叮 —— 咚', meaning: '过河：复现这个间隔', keys: [SoundCatalog.heDingKey, SoundCatalog.heDongKey]),
+    (sound: '叮 / 咚', meaning: '钓花：花瓣 / 杂物，叮则收手', keys: [SoundCatalog.fishDingKey, SoundCatalog.fishDongKey]),
     (sound: '木鱼声', meaning: '节拍锚——由你自己敲出', keys: [SoundCatalog.muyuKey]),
   ];
 

@@ -151,7 +151,7 @@ class TideBreathSession extends PracticeSession {
       // 吻合持续 ≥300ms 且本相位还没响过风铃 → 叠入极轻风铃。
       if (!_chimedThisPhase && _matchedUs >= 300000 && _pressStartUs != null) {
         _chimedThisPhase = true;
-        _ctx.sounds.play('wind_chime', gain: 0.35);
+        _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.35);
       }
     }
     _lastMatchCheckUs = now;

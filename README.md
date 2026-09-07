@@ -173,6 +173,12 @@ dart run tool/gen_sounds.dart       # 需 FFmpeg；合成临时 PCM 后输出 16
 
 **另需真人验证**：真机戴耳机试听木鱼/叮咚起音延迟与循环轨接缝（无法在本机代劳，结果决定待办 1 的优先级）。
 
+**第 11 轮（2026-09-07 · 美工前专项）**
+
+- 修复（重要）：教程门控上线的**迁移 bug**——老用户升级后 `tutorialDone` 默认 false，会被强制重看教程。`applyMigrations` 迁移函数 + 3 个回归测试（有记录/纯新用户/已显式完成）。
+- 清理：5 处魔法音效 key 换 `SoundCatalog` 常量（fish_ding/fish_dong/wind_chime/swish，含教程语义表）；打坐页过期注释（"未接入传感器"已过时）修正。
+- 状态：45 测全绿，analyze 零 issue。
+
 ## 与设计方案/构建方案的实现口径（需团队拍板的都有注释标记）
 
 1. **AudioClock v0.1 用单调时钟**而非原生音频渲染时钟。接口与构建方案完全一致，接 AVAudioEngine/Oboe/soLoud 时只换实现；短音效目前走 AudioPool（预载、无播放时解码），低延迟够用但非采样级调度。
