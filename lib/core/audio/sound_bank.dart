@@ -5,7 +5,7 @@ import 'package:audioplayers/audioplayers.dart' as ap;
 /// v0.1 用 audioplayers 的 AudioPool 实现（一次加载、多路复用、低延迟触发）；
 /// 后续替换为原生 AVAudioEngine / Oboe 或 soLoud 时接口不变。
 abstract class SoundBank {
-  /// 预加载 key → asset 相对路径（AssetSource 形式，如 'sfx/muyu.mp3'）。
+  /// 预加载 key → asset 相对路径（AssetSource 形式，如 'sfx/muyu.wav'）。
   Future<void> preload(Map<String, String> assetByKey);
 
   /// 触发一声短音效（可多路叠加）。

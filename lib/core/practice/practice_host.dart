@@ -80,7 +80,6 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scheduler?.dispose();
-    _session.dispose();
     super.dispose();
   }
 
@@ -171,11 +170,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       kAchievements
           .where(
             (a) => a.test(
-              AchievementEval(
-                store: store,
-                lastResult: result,
-                lastManifest: _session.manifest,
-              ),
+              AchievementEval(store: store, lastResult: result, lastManifest: _session.manifest),
             ),
           )
           .map((a) => a.id),
@@ -218,7 +213,10 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       );
     } else if (!_running) {
       child = _BlackScaffold(
-        child: _StartOverlay(manifest: manifest, onStart: _begin),
+        child: _StartOverlay(
+          manifest: manifest,
+          onStart: _begin,
+        ),
       );
     } else {
       child = Listener(
@@ -226,12 +224,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         onPointerDown: (e) => _dispatchInput(e, PointerPhase.down),
         onPointerUp: (e) => _dispatchInput(e, PointerPhase.up),
         onPointerCancel: (e) => _dispatchInput(e, PointerPhase.cancel),
-        child: _BlackScaffold(
-          child: AnimatedBuilder(
-            animation: _session.visualRevision,
-            builder: (context, _) => _session.buildVisual(context),
-          ),
-        ),
+        child: _BlackScaffold(child: _session.buildVisual(context)),
       );
     }
 
@@ -255,10 +248,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
                 child: GestureDetector(
                   onTap: () => _finish(FinishReason.userEnded),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
                       color: const Color(0x22FFFFFF),
                       borderRadius: BorderRadius.circular(20),
@@ -306,11 +296,7 @@ class _StartOverlay extends StatelessWidget {
           children: [
             Text(
               manifest.name,
-              style: const TextStyle(
-                color: Color(0xFFE8DFC8),
-                fontSize: 26,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 26, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 8),
             Text(
@@ -321,11 +307,7 @@ class _StartOverlay extends StatelessWidget {
               const SizedBox(height: 28),
               Text(
                 rules,
-                style: const TextStyle(
-                  color: Color(0xB3E8DFC8),
-                  fontSize: 15,
-                  height: 1.7,
-                ),
+                style: const TextStyle(color: Color(0xB3E8DFC8), fontSize: 15, height: 1.7),
                 textAlign: TextAlign.center,
               ),
             ],
@@ -335,10 +317,7 @@ class _StartOverlay extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFFE8DFC8),
                 side: const BorderSide(color: Color(0x55E8DFC8)),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 36,
-                  vertical: 14,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 36, vertical: 14),
               ),
               child: const Text('开始（磬响后请闭眼）'),
             ),
@@ -373,11 +352,7 @@ class _SummaryView extends StatelessWidget {
             Text(
               result.completed ? '修行结束' : '修行中断',
               textAlign: TextAlign.center,
-              style: const TextStyle(
-                color: Color(0xFFE8DFC8),
-                fontSize: 24,
-                fontWeight: FontWeight.w600,
-              ),
+              style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 24, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 10),
             Text(
@@ -390,10 +365,7 @@ class _SummaryView extends StatelessWidget {
               for (final title in achievementTitles)
                 Container(
                   margin: const EdgeInsets.only(bottom: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
-                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
                     color: const Color(0x1AD8B36A),
                     borderRadius: BorderRadius.circular(10),
@@ -401,18 +373,11 @@ class _SummaryView extends StatelessWidget {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(
-                        Icons.military_tech,
-                        color: Color(0xFFD8B36A),
-                        size: 18,
-                      ),
+                      const Icon(Icons.military_tech, color: Color(0xFFD8B36A), size: 18),
                       const SizedBox(width: 8),
                       Text(
                         '解锁成就 · $title',
-                        style: const TextStyle(
-                          color: Color(0xFFD8B36A),
-                          fontSize: 14,
-                        ),
+                        style: const TextStyle(color: Color(0xFFD8B36A), fontSize: 14),
                       ),
                     ],
                   ),
@@ -456,14 +421,8 @@ class SummaryChip extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: Color(0x99E8DFC8), fontSize: 14),
-          ),
-          Text(
-            value,
-            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15),
-          ),
+          Text(label, style: const TextStyle(color: Color(0x99E8DFC8), fontSize: 14)),
+          Text(value, style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15)),
         ],
       ),
     );

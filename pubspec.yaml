@@ -63,7 +63,6 @@ flutter:
 
   assets:
     - assets/sfx/
-    - assets/images/practices/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

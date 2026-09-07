@@ -1,82 +1,39 @@
-// 音效合成脚本：先生成临时 PCM WAV，再用 FFmpeg 转为 mono MP3。
+// 音效合成脚本：生成 assets/sfx/ 下全部音效（44.1kHz / 16bit / mono WAV）。
 //
 // v0.1 的占位音色：合成参数刻意匹配设计方案的声音语义表——
 // 雨滴高频短促、钟声低频长尾、过河与钓花的叮/咚音色包络拉开，
 // 正式音效由 Domingo 录制后直接替换同名文件即可，代码无需改动。
 //
 // 运行：dart run tool/gen_sounds.dart
-// FFmpeg 不在 PATH 时：FFMPEG_PATH=/path/to/ffmpeg dart run tool/gen_sounds.dart
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
 const int sampleRate = 44100;
-late final Directory scratchDir;
-late final String ffmpegExecutable;
 
 void main() {
   final outDir = Directory('assets/sfx');
   outDir.createSync(recursive: true);
-  scratchDir = Directory('build/generated_audio_pcm')
-    ..createSync(recursive: true);
-  ffmpegExecutable = Platform.environment['FFMPEG_PATH'] ?? 'ffmpeg';
 
-  final probe = Process.runSync(ffmpegExecutable, const ['-version']);
-  if (probe.exitCode != 0) {
-    stderr.writeln('找不到 FFmpeg。请先安装 ffmpeg，或通过 FFMPEG_PATH 指向可执行文件。');
-    exitCode = 2;
-    return;
-  }
-
-  write('chime.mp3', chime(gain: 0.85, decay: 1.3, seconds: 3.2));
-  write('chime_soft.mp3', chime(gain: 0.4, decay: 0.9, seconds: 2.0));
-  write('chime_double.mp3', chimeDouble());
-  write('tick.mp3', tick());
-  write('muyu.mp3', muyu(dark: false));
-  write('muyu_muffled.mp3', muyu(dark: true));
+  write('chime.wav', chime(gain: 0.85, decay: 1.3, seconds: 3.2));
+  write('chime_soft.wav', chime(gain: 0.4, decay: 0.9, seconds: 2.0));
+  write('chime_double.wav', chimeDouble());
+  write('tick.wav', tick());
+  write('muyu.wav', muyu(dark: false));
+  write('muyu_muffled.wav', muyu(dark: true));
   // 短瞬态音效保留 44.1kHz；低频长尾与环境循环降到 22.05kHz 省包体。
-  write(
-    'he_ding.mp3',
-    bell(
-      [1760, 2640, 3520],
-      amps: [1.0, 0.4, 0.2],
-      decay: 0.7,
-      gain: 0.8,
-      seconds: 2.0,
-    ),
-  );
-  write('he_dong.mp3', decimate2(thud(base: 196, decay: 0.5, gain: 0.85)));
-  write(
-    'fish_ding.mp3',
-    bell([880, 1320], amps: [1.0, 0.3], decay: 0.28, gain: 0.85, pluck: true),
-  );
-  write('fish_dong.mp3', decimate2(thud(base: 150, decay: 0.2, gain: 0.8)));
-  write(
-    'rain_drop.mp3',
-    bell([3200, 4800], amps: [1.0, 0.3], decay: 0.07, gain: 0.7),
-  );
-  write(
-    'bell_low.mp3',
-    decimate2(
-      bell(
-        [330, 660, 990],
-        amps: [1.0, 0.5, 0.25],
-        decay: 1.7,
-        gain: 0.7,
-        seconds: 2.6,
-      ),
-    ),
-  );
-  write('wind_chime.mp3', windChime());
-  write('swish.mp3', swish());
-  write('forest_loop.mp3', decimate2(forestLoop()), rate: 22050);
-  write('tide_loop.mp3', decimate2(tideLoop()), rate: 22050);
+  write('he_ding.wav', bell([1760, 2640, 3520], amps: [1.0, 0.4, 0.2], decay: 0.7, gain: 0.8, seconds: 2.0));
+  write('he_dong.wav', decimate2(thud(base: 196, decay: 0.5, gain: 0.85)));
+  write('fish_ding.wav', bell([880, 1320], amps: [1.0, 0.3], decay: 0.28, gain: 0.85, pluck: true));
+  write('fish_dong.wav', decimate2(thud(base: 150, decay: 0.2, gain: 0.8)));
+  write('rain_drop.wav', bell([3200, 4800], amps: [1.0, 0.3], decay: 0.07, gain: 0.7));
+  write('bell_low.wav', decimate2(bell([330, 660, 990], amps: [1.0, 0.5, 0.25], decay: 1.7, gain: 0.7, seconds: 2.6)));
+  write('wind_chime.wav', windChime());
+  write('swish.wav', swish());
+  write('forest_loop.wav', decimate2(forestLoop()), rate: 22050);
+  write('tide_loop.wav', decimate2(tideLoop()), rate: 22050);
 
-  if (scratchDir.existsSync() && scratchDir.listSync().isEmpty) {
-    scratchDir.deleteSync();
-  }
-  final count = outDir.listSync().where((f) => f.path.endsWith('.mp3')).length;
-  stdout.writeln('已生成 $count 个 MP3 音效 → assets/sfx/');
+  stdout.writeln('已生成 ${outDir.listSync().length} 个音效 → assets/sfx/');
 }
 
 // ---------- 合成基元 ----------
@@ -106,18 +63,9 @@ List<double> bell(
 }
 
 /// 磬：偏金属碗声，加一点不谐和抖动。
-List<double> chime({
-  required double gain,
-  required double decay,
-  required double seconds,
-}) {
-  final out = bell(
-    [700, 1421, 2280, 3130],
-    amps: [1.0, 0.5, 0.22, 0.1],
-    decay: decay,
-    gain: gain,
-    seconds: seconds,
-  );
+List<double> chime({required double gain, required double decay, required double seconds}) {
+  final out = bell([700, 1421, 2280, 3130],
+      amps: [1.0, 0.5, 0.22, 0.1], decay: decay, gain: gain, seconds: seconds);
   return out;
 }
 
@@ -132,8 +80,7 @@ List<double> chimeDouble() {
   return normalize(out, 0.85);
 }
 
-List<double> tick() =>
-    bell([1200, 2400], amps: [1.0, 0.2], decay: 0.03, gain: 0.8, seconds: 0.06);
+List<double> tick() => bell([1200, 2400], amps: [1.0, 0.2], decay: 0.03, gain: 0.8, seconds: 0.06);
 
 /// 木鱼：短促叩击；dark=true 时为"变闷"音色（低频、更快衰减）。
 List<double> muyu({required bool dark}) {
@@ -148,26 +95,15 @@ List<double> muyu({required bool dark}) {
   // 叩击瞬态。
   final rng = Random(7);
   for (var s = 0; s < sampleRate * 8 ~/ 1000; s++) {
-    out[s] +=
-        (rng.nextDouble() * 2 - 1) * 0.25 * (1 - s / (sampleRate * 0.008));
+    out[s] += (rng.nextDouble() * 2 - 1) * 0.25 * (1 - s / (sampleRate * 0.008));
   }
   return normalize(out, 0.85);
 }
 
 /// 低沉鼓点（过河"咚"）。
-List<double> thud({
-  required double base,
-  required double decay,
-  required double gain,
-}) {
-  final out = bell(
-    [base, base * 2, base * 0.5],
-    amps: [1.0, 0.4, 0.35],
-    decay: decay,
-    gain: gain,
-    seconds: decay * 2.5,
-    pluck: true,
-  );
+List<double> thud({required double base, required double decay, required double gain}) {
+  final out = bell([base, base * 2, base * 0.5],
+      amps: [1.0, 0.4, 0.35], decay: decay, gain: gain, seconds: decay * 2.5, pluck: true);
   final rng = Random(3);
   for (var s = 0; s < sampleRate * 15 ~/ 1000; s++) {
     out[s] += (rng.nextDouble() * 2 - 1) * 0.4 * (1 - s / (sampleRate * 0.015));
@@ -184,8 +120,7 @@ List<double> windChime() {
     final w = 2 * pi * f / sampleRate;
     for (var s = start; s < n; s++) {
       final t = (s - start) / sampleRate;
-      out[s] +=
-          0.4 * exp(-t / 0.35) * min(1.0, t / 0.003) * sin(w * (s - start));
+      out[s] += 0.4 * exp(-t / 0.35) * min(1.0, t / 0.003) * sin(w * (s - start));
     }
   }
   return normalize(out, 0.6);
@@ -305,7 +240,7 @@ List<double> normalize(List<double> input, double peak) {
   return [for (final v in input) v * k];
 }
 
-// ---------- PCM 写出 + MP3 转码 ----------
+// ---------- WAV 写出 ----------
 
 void write(String name, List<double> samples, {int rate = sampleRate}) {
   final n = samples.length;
@@ -318,55 +253,15 @@ void write(String name, List<double> samples, {int rate = sampleRate}) {
   final payload = data.takeBytes();
 
   final header = BytesBuilder()
-    ..add([
-      ...utf8list('RIFF'),
-      ...u32(36 + payload.length),
-      ...utf8list('WAVE'),
-    ])
+    ..add([...utf8list('RIFF'), ...u32(36 + payload.length), ...utf8list('WAVE')])
     ..add([...utf8list('fmt '), ...u32(16), ...u16(1), ...u16(1)])
     ..add([...u32(rate), ...u32(rate * 2), ...u16(2), ...u16(16)])
     ..add([...utf8list('data'), ...u32(payload.length)]);
 
-  final stem = name.endsWith('.mp3')
-      ? name.substring(0, name.length - 4)
-      : name;
-  final wavFile = File('${scratchDir.path}/$stem.wav');
-  wavFile.writeAsBytesSync([...header.takeBytes(), ...payload]);
-
-  final isLoop = stem == 'forest_loop' || stem == 'tide_loop';
-  final result = Process.runSync(ffmpegExecutable, [
-    '-hide_banner',
-    '-loglevel',
-    'error',
-    '-y',
-    '-i',
-    wavFile.path,
-    '-map_metadata',
-    '-1',
-    '-vn',
-    '-ac',
-    '1',
-    '-c:a',
-    'libmp3lame',
-    '-b:a',
-    isLoop ? '64k' : '128k',
-    '-id3v2_version',
-    '0',
-    '-write_xing',
-    '1',
-    'assets/sfx/$stem.mp3',
-  ]);
-  wavFile.deleteSync();
-  if (result.exitCode != 0) {
-    throw StateError('FFmpeg 转码失败：$stem\n${result.stderr}');
-  }
+  final file = File('assets/sfx/$name');
+  file.writeAsBytesSync([...header.takeBytes(), ...payload]);
 }
 
 List<int> utf8list(String s) => s.codeUnits;
-List<int> u32(int v) => [
-  v & 0xff,
-  (v >> 8) & 0xff,
-  (v >> 16) & 0xff,
-  (v >> 24) & 0xff,
-];
+List<int> u32(int v) => [v & 0xff, (v >> 8) & 0xff, (v >> 16) & 0xff, (v >> 24) & 0xff];
 List<int> u16(int v) => [v & 0xff, (v >> 8) & 0xff];

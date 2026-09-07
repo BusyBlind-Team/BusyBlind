@@ -8,7 +8,6 @@ import '../core/practice/practice_manifest.dart';
 import '../core/practice/practice_result.dart';
 import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
-import '../widgets/practice_scene.dart';
 
 /// 数雨（专注 · 双通道计数 + 白噪声）。
 ///
@@ -48,10 +47,8 @@ class CountRainSession extends PracticeSession {
   bool _finished = false;
 
   // ---- 测试钩子 ----
-  @visibleForTesting
-  List<int> get rainTimesUs => _rainTimesUs;
-  @visibleForTesting
-  List<int> get bellTimesUs => _bellTimesUs;
+  @visibleForTesting List<int> get rainTimesUs => _rainTimesUs;
+  @visibleForTesting List<int> get bellTimesUs => _bellTimesUs;
 
   @override
   PracticeManifest get manifest => const PracticeManifest(
@@ -63,7 +60,8 @@ class CountRainSession extends PracticeSession {
     typicalLength: Duration(minutes: 5),
     meritBase: 15,
     iconKey: 'count_rain',
-    rulesText: '鸟鸣虫鸣里，雨滴偶尔落下，钟声偶尔响起。\n轻点一次＝记一滴雨；按住不松（约半秒）＝记一声钟。\n五分钟后对答案。',
+    rulesText:
+        '鸟鸣虫鸣里，雨滴偶尔落下，钟声偶尔响起。\n轻点一次＝记一滴雨；按住不松（约半秒）＝记一声钟。\n五分钟后对答案。',
   );
 
   @override
@@ -93,8 +91,7 @@ class CountRainSession extends PracticeSession {
       // 约束 2：任意 10 秒窗口内 ≤3 个事件（防扎堆）。
       if (ok) {
         for (var i = 0; i + _maxEventsInBurst < merged.length; i++) {
-          if (merged[i + _maxEventsInBurst].$1 - merged[i].$1 <
-              _burstWindowUs) {
+          if (merged[i + _maxEventsInBurst].$1 - merged[i].$1 < _burstWindowUs) {
             ok = false;
             break;
           }
@@ -150,7 +147,6 @@ class CountRainSession extends PracticeSession {
     switch (e.phase) {
       case PointerPhase.down:
         _downUs = e.sessionUs;
-        notifyVisualChanged();
       case PointerPhase.up:
         final down = _downUs;
         _downUs = null;
@@ -163,30 +159,25 @@ class CountRainSession extends PracticeSession {
         }
       case PointerPhase.cancel:
         _downUs = null;
-        notifyVisualChanged();
     }
   }
 
   void _recordRain(int atUs) {
-    if (_lastRainInputUs != null &&
-        atUs - _lastRainInputUs! < _inputDebounceUs) {
+    if (_lastRainInputUs != null && atUs - _lastRainInputUs! < _inputDebounceUs) {
       return;
     }
     _lastRainInputUs = atUs;
     _userRainUs.add(atUs);
     _ctx.recorder.log('input:rain', {'at': atUs});
-    notifyVisualChanged();
   }
 
   void _recordBell(int atUs) {
-    if (_lastBellInputUs != null &&
-        atUs - _lastBellInputUs! < _inputDebounceUs) {
+    if (_lastBellInputUs != null && atUs - _lastBellInputUs! < _inputDebounceUs) {
       return;
     }
     _lastBellInputUs = atUs;
     _userBellUs.add(atUs);
     _ctx.recorder.log('input:bell', {'at': atUs});
-    notifyVisualChanged();
   }
 
   @override
@@ -206,12 +197,8 @@ class CountRainSession extends PracticeSession {
   PracticeResult _buildResult(FinishReason r) {
     final actualRain = _rainTimesUs.length;
     final actualBell = _bellTimesUs.length;
-    final rainErr = actualRain == 0
-        ? 0.0
-        : (_userRainUs.length - actualRain).abs() / actualRain;
-    final bellErr = actualBell == 0
-        ? 0.0
-        : (_userBellUs.length - actualBell).abs() / actualBell;
+    final rainErr = actualRain == 0 ? 0.0 : (_userRainUs.length - actualRain).abs() / actualRain;
+    final bellErr = actualBell == 0 ? 0.0 : (_userBellUs.length - actualBell).abs() / actualBell;
     final avgErr = (rainErr + bellErr) / 2;
     final completed = r == FinishReason.completed;
     final quality = (1 - avgErr).clamp(0.0, 1.0);
@@ -243,14 +230,11 @@ class CountRainSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    final count = _userRainUs.length + _userBellUs.length;
-    return PracticeScene(
-      kind: PracticeSceneKind.countRain,
-      title: '数 雨',
-      subtitle: _downUs == null ? '轻点记雨 · 长按记钟' : '听住这一声…',
-      active: _downUs != null,
-      count: count,
-      accent: _userBellUs.isEmpty ? 0 : 1,
+    return Center(
+      child: Text(
+        '闭眼 · 听雨',
+        style: const TextStyle(color: Color(0x33E8DFC8), fontSize: 15, letterSpacing: 8),
+      ),
     );
   }
 
@@ -269,17 +253,11 @@ class CountRainSession extends PracticeSession {
         const SizedBox(height: 20),
         _Row(label: '你数到的雨滴', value: '${m['userRain']} 滴'),
         _Row(label: '实际雨滴', value: '${m['actualRain']} 滴'),
-        _Row(
-          label: '雨滴误差',
-          value: '${((m['rainError'] as num) * 100).toStringAsFixed(0)}%',
-        ),
+        _Row(label: '雨滴误差', value: '${((m['rainError'] as num) * 100).toStringAsFixed(0)}%'),
         const SizedBox(height: 8),
         _Row(label: '你数到的钟声', value: '${m['userBell']} 声'),
         _Row(label: '实际钟声', value: '${m['actualBell']} 声'),
-        _Row(
-          label: '钟声误差',
-          value: '${((m['bellError'] as num) * 100).toStringAsFixed(0)}%',
-        ),
+        _Row(label: '钟声误差', value: '${((m['bellError'] as num) * 100).toStringAsFixed(0)}%'),
       ],
     );
   }
@@ -298,14 +276,8 @@ class _Row extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13),
-          ),
-          Text(
-            value,
-            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14),
-          ),
+          Text(label, style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13)),
+          Text(value, style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14)),
         ],
       ),
     );
