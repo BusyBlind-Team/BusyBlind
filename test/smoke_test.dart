@@ -76,7 +76,8 @@ void main() {
 
     // 开始修行（开场页 → 运行中）。
     await tester.tap(find.textContaining('开始'));
-    await tester.pumpAndSettle();
+    // 运行画面包含持续氛围动画，不能等待到“完全静止”。
+    await tester.pump(const Duration(milliseconds: 16));
 
     // 模拟系统返回手势/返回键。
     await tester.binding.handlePopRoute();
@@ -99,7 +100,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.textContaining('开始'));
-    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 16));
 
     // 静坐一分钟走完：推进时钟，让调度器触发结算收口。
     clock.advanceUs(61000000);

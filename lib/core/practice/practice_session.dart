@@ -48,6 +48,14 @@ class PracticeContext {
 /// 验收标准：新增一个修行 = 一个本接口的实现 + 一条注册 + 一组音效，
 /// 不改动宿主与其他修行的任何一行。
 abstract class PracticeSession {
+  /// 玩法状态变化时递增；宿主只据此重建视觉层，不介入玩法状态机。
+  final ValueNotifier<int> visualRevision = ValueNotifier<int>(0);
+
+  @protected
+  void notifyVisualChanged() {
+    visualRevision.value++;
+  }
+
   PracticeManifest get manifest;
 
   /// 预载音频、标定等准备工作（宿主在进入会话页前调用一次）。
@@ -73,4 +81,10 @@ abstract class PracticeSession {
 
   /// 结算页（助眠模式等特殊结局可由 note 控制，宿主跳过）。
   Widget buildSummary(BuildContext c, PracticeResult r);
+
+  /// 释放视觉通知器；调度器必须先于会话释放，避免迟到回调。
+  @mustCallSuper
+  void dispose() {
+    visualRevision.dispose();
+  }
 }
