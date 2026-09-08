@@ -214,18 +214,25 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
     final store = ref.watch(storeProvider);
     final capped = store.meditationEarnedToday() >= AppStore.kDailyMeditationCap;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _onTapAnywhere,
-        onLongPressStart: (_) => _onHoldStart(),
-        onLongPressEnd: (_) => _onHoldEnd(),
-        onLongPressCancel: _onHoldEnd,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+    return PopScope<Object?>(
+      // 所有退出入口都先经由 _exit 写入记录/结算成就；_exit 自己完成后
+      // 允许 Navigator.pop 关闭页面。
+      canPop: _exiting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _exit();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _onTapAnywhere,
+          onLongPressStart: (_) => _onHoldStart(),
+          onLongPressEnd: (_) => _onHoldEnd(),
+          onLongPressCancel: _onHoldEnd,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               const Spacer(flex: 3),
               const MonkFigure(dim: true),
               const Spacer(flex: 4),
@@ -267,7 +274,8 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
                       style: TextStyle(color: Color(0x2EE8DFC8), fontSize: 11),
                     ),
               const SizedBox(height: 28),
-            ],
+              ],
+            ),
           ),
         ),
       ),
