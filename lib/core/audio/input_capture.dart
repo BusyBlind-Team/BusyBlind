@@ -35,7 +35,10 @@ class InputCapture {
 
   final AudioClock _clock;
 
-  InputEvent capture(PointerEvent event, int Function() sessionNowUs) {
+  InputEvent capture(
+    PointerEvent event,
+    int Function(int absAudioUs) toSessionUs,
+  ) {
     _clock.noteTouchEvent(event.timeStamp.inMicroseconds);
     final absUs = _clock.touchToAudioUs(event.timeStamp.inMicroseconds);
     return InputEvent(
@@ -47,7 +50,9 @@ class InputCapture {
         _ => PointerPhase.cancel,
       },
       absAudioUs: absUs,
-      sessionUs: sessionNowUs(),
+      // 先补偿触摸输入到音频时间，再投影到会话时间轴。不能使用
+      // 当前处理时刻，否则事件派送/渲染延迟会重新进入玩法判定。
+      sessionUs: toSessionUs(absUs),
       rawTimeStamp: event.timeStamp,
       position: event.localPosition,
     );
