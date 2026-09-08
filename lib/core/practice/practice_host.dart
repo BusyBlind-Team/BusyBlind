@@ -103,7 +103,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   }
 
   void _begin() {
-    if (!_prepared || _running) return;
+    if (!_prepared || _running || _finishing || _result != null) return;
     final scheduler = _scheduler!;
     scheduler.begin();
     _session.start();
@@ -217,6 +217,12 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
           result: _result!,
           merit: _result!.merit.clamp(0, manifest.meritBase * 3),
           achievementTitles: _freshAchievements,
+        ),
+      );
+    } else if (_finishing) {
+      child = const _BlackScaffold(
+        child: Center(
+          child: CircularProgressIndicator(color: Color(0xFFE8DFC8)),
         ),
       );
     } else if (!_running) {

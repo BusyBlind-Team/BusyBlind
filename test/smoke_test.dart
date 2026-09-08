@@ -5,6 +5,7 @@ import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/di.dart';
 import 'package:busy_blind/features/monk/sign_page.dart';
 import 'package:busy_blind/features/monk/meditation_page.dart';
+import 'package:busy_blind/practices/tide_breath.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
@@ -162,5 +163,24 @@ void main() {
     expect(find.byType(MeditationPage), findsNothing);
     expect(find.text('开始打坐'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('助眠结算期间不显示可点击的开始按钮', (tester) async {
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(
+          factory: TideBreathSession.new,
+          params: const {'sleepMode': true},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.tap(find.text('结束'));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(find.text('开始（磬响后请闭眼）'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
   });
 }
