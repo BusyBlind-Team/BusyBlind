@@ -29,7 +29,7 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [
-        storeProvider.overrideWithValue(store),
+        storeProvider.overrideWith((ref) => store),
         soundBankProvider.overrideWithValue(sounds),
         clockProvider.overrideWithValue(clock),
       ],

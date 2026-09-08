@@ -18,7 +18,7 @@ import 'helpers/fake_clock.dart';
 Widget harness({required Widget home, AppStore? store, FakeClock? clock}) {
   return ProviderScope(
     overrides: [
-      storeProvider.overrideWithValue(store ?? AppStore.inMemory()),
+      storeProvider.overrideWith((ref) => store ?? AppStore.inMemory()),
       soundBankProvider.overrideWithValue(SilentSoundBank()),
       clockProvider.overrideWithValue(clock ?? FakeClock()),
     ],
@@ -32,7 +32,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          storeProvider.overrideWithValue(store),
+          storeProvider.overrideWith((ref) => store),
           soundBankProvider.overrideWithValue(SilentSoundBank()),
           clockProvider.overrideWithValue(FakeClock()),
         ],
