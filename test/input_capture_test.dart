@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'helpers/fake_clock.dart';
 
 class _OffsetClock extends FakeClock {
+  _OffsetClock(super.initialUs);
+
   @override
   int touchToAudioUs(int rawTouchUs) => rawTouchUs - userOffsetUs;
 }
