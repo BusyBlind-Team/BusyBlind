@@ -8,6 +8,8 @@ import 'package:busy_blind/core/practice/practice_registry.dart';
 import 'package:busy_blind/core/practice/practice_result.dart';
 import 'package:busy_blind/core/practice/practice_session.dart';
 import 'package:busy_blind/core/practice/practice_types.dart';
+import 'package:busy_blind/data/app_store.dart';
+import 'package:busy_blind/domain/achievements.dart';
 import 'package:busy_blind/practices/count_rain.dart';
 import 'package:busy_blind/practices/cross_river.dart';
 import 'package:busy_blind/practices/fish_petals.dart';
@@ -115,6 +117,28 @@ void main() {
   });
 
   group('木鱼', () {
+    test('空局取消不能以零标准差解锁稳定性成就', () async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = WoodenFishSession();
+      await session.prepare(ctx);
+      session.start();
+
+      final result = await session.finish(FinishReason.cancelled);
+      final steady = kAchievements.firstWhere((a) => a.id == 'muyu_steady');
+      expect(result.metrics['strikes'], 0);
+      expect(
+        steady.test(
+          AchievementEval(
+            store: AppStore.inMemory(),
+            lastResult: result,
+            lastManifest: session.manifest,
+          ),
+        ),
+        isFalse,
+      );
+      scheduler.dispose();
+    });
+
     test('108 声整间隔 → 偏移 0，修为 15，里程碑磬两次', () async {
       FinishReason? reason;
       final (ctx, _, sounds, _) = makeContext((r) => reason = r);
@@ -187,6 +211,36 @@ void main() {
   });
 
   group('数雨（待对齐 #2/#8：删钟声 · 3–10 秒一滴 · 3 分钟 · 听完报数）', () {
+    test('实际数雨结果的 errorRate 能解锁听雨知数', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = CountRainSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        clock.advanceUs(180000000);
+        async.elapse(const Duration(milliseconds: 100));
+        session.submitReport(session.rainTimesUs.length);
+        PracticeResult? result;
+        session.finish(FinishReason.completed).then((value) => result = value);
+        async.flushMicrotasks();
+
+        final achievement = kAchievements.firstWhere((a) => a.id == 'rain_good');
+        expect(
+          achievement.test(
+            AchievementEval(
+              store: AppStore.inMemory(),
+              lastResult: result,
+              lastManifest: session.manifest,
+            ),
+          ),
+          isTrue,
+        );
+        scheduler.dispose();
+      });
+    });
+
     test('雨滴序列：间隔 3–10 秒，3 分钟内，无钟声', () async {
       final (ctx, _, _, scheduler) = makeContext((_) {});
       final session = CountRainSession();

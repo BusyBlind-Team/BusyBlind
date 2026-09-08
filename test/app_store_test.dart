@@ -2,6 +2,7 @@ import 'dart:math';
 import 'dart:io';
 
 import 'package:busy_blind/data/app_store.dart';
+import 'package:busy_blind/domain/achievements.dart';
 import 'package:busy_blind/domain/petals.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -193,6 +194,32 @@ void main() {
         PathProviderPlatform.instance = previous;
         await dir.delete(recursive: true);
       }
+    });
+
+    test('中断记录不计入“日课”的累计完成次数', () {
+      final store = AppStore.inMemory();
+      for (var i = 0; i < 7; i++) {
+        store.addSession(
+          practiceId: 'wooden_fish',
+          merit: 0,
+          completed: false,
+          durationMs: 0,
+        );
+      }
+      final dailyPractice = kAchievements.firstWhere((a) => a.id == 'sessions_7');
+      expect(store.completedSessionCount, 0);
+      expect(dailyPractice.test(AchievementEval(store: store)), isFalse);
+
+      for (var i = 0; i < 7; i++) {
+        store.addSession(
+          practiceId: 'wooden_fish',
+          merit: 1,
+          completed: true,
+          durationMs: 1000,
+        );
+      }
+      expect(store.completedSessionCount, 7);
+      expect(dailyPractice.test(AchievementEval(store: store)), isTrue);
     });
   });
 }
