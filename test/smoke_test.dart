@@ -6,6 +6,7 @@ import 'package:busy_blind/di.dart';
 import 'package:busy_blind/features/monk/sign_page.dart';
 import 'package:busy_blind/features/monk/meditation_page.dart';
 import 'package:busy_blind/practices/tide_breath.dart';
+import 'package:busy_blind/features/me/me_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
@@ -218,5 +219,16 @@ void main() {
     expect(find.byType(PracticeHostPage), findsNothing);
     expect(find.text('进入助眠'), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('外部存储更新会刷新已显示的个人页', (tester) async {
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(harness(home: const MePage(), store: store));
+    expect(find.text('累计修行 0 次 · 修为 0'), findsOneWidget);
+
+    store.addMerit(100);
+    await tester.pump();
+
+    expect(find.text('累计修行 0 次 · 修为 100'), findsOneWidget);
   });
 }
