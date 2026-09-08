@@ -168,19 +168,38 @@ void main() {
   testWidgets('助眠结算期间不显示可点击的开始按钮', (tester) async {
     await tester.pumpWidget(
       harness(
-        home: PracticeHostPage(
-          factory: TideBreathSession.new,
-          params: const {'sleepMode': true},
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PracticeHostPage(
+                  factory: TideBreathSession.new,
+                  params: const {'sleepMode': true},
+                ),
+              ),
+            ),
+            child: const Text('进入助眠'),
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('开始'));
+    await tester.tap(find.text('进入助眠'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始（磬响后请闭眼）'));
     await tester.pump(const Duration(milliseconds: 16));
     await tester.tap(find.text('结束'));
     await tester.pump(const Duration(milliseconds: 16));
 
     expect(find.text('开始（磬响后请闭眼）'), findsNothing);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // 每一步都会在异步音量调用后安排下一个延迟，逐步推进整个淡出。
+    for (var step = 0; step < 11; step++) {
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    await tester.pumpAndSettle();
+    expect(find.byType(PracticeHostPage), findsNothing);
+    expect(find.text('进入助眠'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
