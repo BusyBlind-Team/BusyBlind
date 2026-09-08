@@ -137,6 +137,12 @@ void main() {
         expect(store.merit, 42);
         expect(store.persistenceError, contains('备份恢复'));
         expect(await primary.exists(), isFalse);
+        // 恢复后尚未产生新保存，再次启动仍必须读取备份。
+        final reopened = await AppStore.load();
+        expect(reopened.merit, 42);
+        reopened.addMerit(1);
+        expect(await reopened.waitForSave(), isTrue);
+        expect((await AppStore.load()).merit, 43);
         expect(
           (await dir.list().toList()).any((entry) => entry.path.contains('.corrupt-')),
           isTrue,

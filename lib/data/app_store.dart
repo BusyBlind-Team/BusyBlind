@@ -17,12 +17,11 @@ class AppStore extends ChangeNotifier {
     this._data,
     this._file, {
     this.persistenceError,
-    bool persistenceBlocked = false,
-  }) : _persistenceBlocked = persistenceBlocked;
+  });
 
   final Map<String, Object?> _data;
   final File? _file;
-  bool _persistenceBlocked;
+  bool _persistenceBlocked = false;
 
   /// 当前运行检测到的存档问题。UI 应提示用户，不能静默回退为空账户。
   String? persistenceError;
@@ -32,7 +31,7 @@ class AppStore extends ChangeNotifier {
     final file = File('${dir.path}/busy_blind.json');
     final backup = File('${file.path}.bak');
     Map<String, Object?>? data;
-    if (await file.exists()) {
+    if (await file.exists() || await backup.exists()) {
       data = await _readJson(file);
       if (data == null) {
         final backupData = await _readJson(backup);
@@ -41,20 +40,21 @@ class AppStore extends ChangeNotifier {
             _defaults({}),
             file,
             persistenceError: '本地存档无法读取，原文件已保留，未自动覆盖。',
-            persistenceBlocked: true,
-          );
+          ).._persistenceBlocked = true;
         }
         final quarantined = File('${file.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+        var blocked = false;
         try {
-          await file.rename(quarantined.path);
+          if (await file.exists()) await file.rename(quarantined.path);
         } catch (_) {
           // 无法隔离时仍不覆盖原文件；备份数据只在本次运行用于恢复。
+          blocked = true;
         }
         return AppStore._(
           applyMigrations(_defaults(backupData)),
           file,
-          persistenceError: '主存档损坏，已从上一份备份恢复；原文件已保留。',
-        );
+          persistenceError: '主存档缺失或损坏，已从上一份备份恢复；已有文件已保留。',
+        ).._persistenceBlocked = blocked;
       }
     }
     return AppStore._(applyMigrations(_defaults(data ?? {})), file);
