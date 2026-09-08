@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -21,19 +23,31 @@ class _CalibrationPageState extends ConsumerState<CalibrationPage> {
 
   final List<int> _beatUs = [];
   final List<int> _offsetsUs = [];
-  Stream<int>? _beatStream;
+  StreamSubscription<int>? _beatSubscription;
   bool _running = false;
   int? _medianUs;
+  int _runId = 0;
+
+  void _stopBeats() {
+    _runId++;
+    final subscription = _beatSubscription;
+    _beatSubscription = null;
+    if (subscription != null) {
+      unawaited(subscription.cancel());
+    }
+  }
 
   void _start() {
+    _stopBeats();
     _beatUs.clear();
     _offsetsUs.clear();
     _medianUs = null;
     final clock = ref.read(clockProvider);
     final sounds = ref.read(soundBankProvider);
-    _beatStream = clock.beats(_periodUs);
+    final runId = _runId;
     setState(() => _running = true);
-    _beatStream!.listen((beatAt) {
+    _beatSubscription = clock.beats(_periodUs).listen((beatAt) {
+      if (!_running || runId != _runId) return;
       _beatUs.add(beatAt);
       sounds.play(SoundCatalog.tickKey, gain: 0.8);
       if (mounted) setState(() {});
@@ -63,6 +77,7 @@ class _CalibrationPageState extends ConsumerState<CalibrationPage> {
       final store = ref.read(storeProvider);
       clock.userOffsetUs = median;
       store.lUserUs = median;
+      _stopBeats();
       setState(() {
         _running = false;
         _medianUs = median;
@@ -74,6 +89,7 @@ class _CalibrationPageState extends ConsumerState<CalibrationPage> {
 
   @override
   void dispose() {
+    _stopBeats();
     super.dispose();
   }
 
