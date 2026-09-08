@@ -31,6 +31,7 @@ jobs:
   # 每次推送产出 release APK：手机无需任何开发环境，
   # 在 Actions 页面下载 artifact 直接安装（私有仓库需登录有权限的账号）。
   apk:
+    needs: check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
