@@ -19,6 +19,19 @@ class MePage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
+          if (store.persistenceError != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0x22C97B6B),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                store.persistenceError!,
+                style: const TextStyle(color: AppTheme.inkDim, fontSize: 12, height: 1.5),
+              ),
+            ),
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(

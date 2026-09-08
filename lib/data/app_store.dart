@@ -13,23 +13,60 @@ import '../domain/petals.dart';
 /// 迁移 SQLite 时只动本文件，Domain 与 UI 不感知。
 /// 断网时全部功能可用；服务器只负责同步与好友社交（v0.1 未接入）。
 class AppStore extends ChangeNotifier {
-  AppStore._(this._data, this._file);
+  AppStore._(
+    this._data,
+    this._file, {
+    this.persistenceError,
+    bool persistenceBlocked = false,
+  }) : _persistenceBlocked = persistenceBlocked;
 
   final Map<String, Object?> _data;
   final File? _file;
+  bool _persistenceBlocked;
+
+  /// 当前运行检测到的存档问题。UI 应提示用户，不能静默回退为空账户。
+  String? persistenceError;
 
   static Future<AppStore> load() async {
     final dir = await getApplicationDocumentsDirectory();
     final file = File('${dir.path}/busy_blind.json');
-    Map<String, Object?> data = {};
+    final backup = File('${file.path}.bak');
+    Map<String, Object?>? data;
     if (await file.exists()) {
-      try {
-        data = (jsonDecode(await file.readAsString()) as Map).cast<String, Object?>();
-      } catch (_) {
-        data = {};
+      data = await _readJson(file);
+      if (data == null) {
+        final backupData = await _readJson(backup);
+        if (backupData == null) {
+          return AppStore._(
+            _defaults({}),
+            file,
+            persistenceError: '本地存档无法读取，原文件已保留，未自动覆盖。',
+            persistenceBlocked: true,
+          );
+        }
+        final quarantined = File('${file.path}.corrupt-${DateTime.now().millisecondsSinceEpoch}');
+        try {
+          await file.rename(quarantined.path);
+        } catch (_) {
+          // 无法隔离时仍不覆盖原文件；备份数据只在本次运行用于恢复。
+        }
+        return AppStore._(
+          applyMigrations(_defaults(backupData)),
+          file,
+          persistenceError: '主存档损坏，已从上一份备份恢复；原文件已保留。',
+        );
       }
     }
-    return AppStore._(applyMigrations(_defaults(data)), file);
+    return AppStore._(applyMigrations(_defaults(data ?? {})), file);
+  }
+
+  static Future<Map<String, Object?>?> _readJson(File file) async {
+    if (!await file.exists()) return null;
+    try {
+      return (jsonDecode(await file.readAsString()) as Map).cast<String, Object?>();
+    } catch (_) {
+      return null;
+    }
   }
 
   /// 数据迁移：老版本升级后的字段口径修正。
@@ -273,17 +310,33 @@ class AppStore extends ChangeNotifier {
 
   // ---- 持久化 ----
 
-  Future<void>? _saveQueue;
+  Future<bool>? _saveQueue;
 
-  /// 串行化写盘：连续快速变更时排队写入，避免文件写入交错损坏。
-  Future<void> _save() {
-    _saveQueue = (_saveQueue ?? Future<void>.value()).then((_) async {
+  /// 等待已经排队的保存完成；false 表示原文件已保护或本次写盘失败。
+  Future<bool> waitForSave() => _saveQueue ?? Future<bool>.value(!_persistenceBlocked);
+
+  /// 串行化原子写盘：先写并刷新临时文件，保留上一份有效备份，再替换主文件。
+  Future<bool> _save() {
+    _saveQueue = (_saveQueue ?? Future<bool>.value(true)).then((_) async {
       final file = _file;
-      if (file == null) return;
+      if (file == null) return true;
+      if (_persistenceBlocked) return false;
+      final temp = File('${file.path}.tmp');
+      final backup = File('${file.path}.bak');
       try {
-        await file.writeAsString(jsonEncode(_data));
+        await temp.writeAsString(jsonEncode(_data), flush: true);
+        if (await file.exists()) {
+          await file.copy(backup.path);
+        }
+        await temp.rename(file.path);
+        return true;
       } catch (e) {
-        debugPrint('AppStore save failed: $e');
+        persistenceError = '本地存档保存失败，原文件未被覆盖：$e';
+        notifyListeners();
+        if (await temp.exists()) {
+          await temp.delete();
+        }
+        return false;
       }
     });
     return _saveQueue!;
