@@ -8,6 +8,7 @@ import '../../theme.dart';
 import '../../widgets/low_poly_button.dart';
 import '../../widgets/monk_figure.dart';
 import 'achievements_page.dart';
+import 'bgm_settings_page.dart';
 import 'friends_page.dart';
 import 'meditation_page.dart';
 import 'sign_page.dart';
@@ -29,6 +30,19 @@ class MonkPage extends ConsumerWidget {
       body: SafeArea(
         child: Stack(
           children: [
+            // 音乐与音效设置入口（首页调整按钮）。
+            Align(
+              alignment: const Alignment(0.94, -0.96),
+              child: IconButton(
+                icon: const Icon(Icons.music_note, color: AppTheme.inkDim),
+                tooltip: '音乐与音效',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BgmSettingsPage(),
+                  ),
+                ),
+              ),
+            ),
             // 等级称号 + 修为条（立绘上方）。
             Align(
               alignment: Alignment(0, -0.82),

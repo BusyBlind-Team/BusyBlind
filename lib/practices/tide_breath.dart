@@ -104,9 +104,17 @@ class TideBreathSession extends PracticeSession {
     intro: '潮涌，潮落，这是自然的呼吸。让气息和自然同步，能带来安稳的睡眠。在这放松的五分钟内，循着潮声呼吸吧。',
   );
 
+  late String _ambientKey = SoundCatalog.tideLoopKey;
+  double _ambientScale = 1.0;
+
   @override
   Future<void> prepare(PracticeContext ctx) async {
     _ctx = ctx;
+    // 潮声循环可被所选背景音乐对应替换（首页"乐"设置）；
+    // 音量包络照旧作用在当前循环轨上（默认音量下与原潮声一致）。
+    _ambientKey = ctx.stringParam('ambientKey', SoundCatalog.tideLoopKey);
+    _ambientScale =
+        ctx.doubleParam('ambientVolume', 0.35) / 0.35;
   }
 
   bool get _shouldPress => _segments[_segIndex].pressExpected;
@@ -115,7 +123,7 @@ class TideBreathSession extends PracticeSession {
   void start() {
     _segments = kBreathMethods[_breathMethod.clamp(0, kBreathMethods.length - 1)];
     _segIndex = 0;
-    _ctx.sounds.startLoop(SoundCatalog.tideLoopKey, gain: 0.05);
+    _ctx.sounds.startLoop(_ambientKey, gain: 0.05 * _ambientScale);
     _phaseStartUs = _ctx.scheduler.nowUs();
     _lastMatchCheckUs = _phaseStartUs;
     _schedulePhaseEnd();
@@ -146,8 +154,8 @@ class TideBreathSession extends PracticeSession {
     final t = _ctx.scheduler.nowUs() - _phaseStartUs;
     final x = (t / seg.lengthUs).clamp(0.0, 1.0);
     _ctx.sounds.setLoopGain(
-      SoundCatalog.tideLoopKey,
-      _envelopeVolume(seg.envelope, x),
+      _ambientKey,
+      _envelopeVolume(seg.envelope, x) * _ambientScale,
     );
   }
 
@@ -234,11 +242,14 @@ class TideBreathSession extends PracticeSession {
     if (sleepMode) {
       // 助眠模式：音频渐弱至静音（约 4 秒），宿主按 note 跳过结算页。
       for (var i = 10; i >= 0; i--) {
-        await _ctx.sounds.setLoopGain(SoundCatalog.tideLoopKey, 0.05 * i / 10);
+        await _ctx.sounds.setLoopGain(
+          _ambientKey,
+          0.05 * i / 10 * _ambientScale,
+        );
         await Future<void>.delayed(const Duration(milliseconds: 400));
       }
     }
-    await _ctx.sounds.stopLoop(SoundCatalog.tideLoopKey);
+    await _ctx.sounds.stopLoop(_ambientKey);
     return _buildResult(r);
   }
 

@@ -119,6 +119,8 @@ class AppStore extends ChangeNotifier {
     // 登录天数（成就：刹那/禅七/……）与各修行首次教程已读标记。
     'login': data['login'] ?? {'count': 0, 'lastDate': ''},
     'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
+    // 背景音乐设置：track = 曲目索引（-1 = 随机），volume = 0..1。
+    'bgm': data['bgm'] ?? {'track': -1, 'volume': 0.35},
   };
 
   // ---- 首启教程 ----
@@ -373,6 +375,22 @@ class AppStore extends ChangeNotifier {
     _save();
     notifyListeners();
     return true;
+  }
+
+  // ---- 背景音乐设置（首页"乐"入口：音量 + 曲目，2 个循环环境音对应替换）----
+
+  /// -1 = 每次修行随机选曲；0..4 = 固定选 SoundCatalog.bgmTracks[i]。
+  int get bgmTrackIndex => (_data['bgm']! as Map)['track']! as int;
+
+  double get bgmVolume =>
+      ((_data['bgm']! as Map)['volume'] as num?)?.toDouble() ?? 0.35;
+
+  void setBgmSettings({int? track, double? volume}) {
+    final m = _data['bgm']! as Map;
+    if (track != null) m['track'] = track;
+    if (volume != null) m['volume'] = volume.clamp(0.0, 1.0);
+    _save();
+    notifyListeners();
   }
 
   // ---- 修行首次教程（改进列表：每个修行第一次打开先看浮窗教程）----

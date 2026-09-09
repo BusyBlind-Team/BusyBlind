@@ -94,6 +94,18 @@ void main() {
       expect(five.id, anyOf('peach', 'pear', 'sakura', 'crabapple'));
     });
 
+    test('背景音乐设置：曲目与音量持久化，音量截断到 0..1', () {
+      final store = AppStore.inMemory();
+      expect(store.bgmTrackIndex, -1); // 默认随机
+      expect(store.bgmVolume, 0.35);
+      store.setBgmSettings(track: 2, volume: 1.5);
+      expect(store.bgmTrackIndex, 2);
+      expect(store.bgmVolume, 1.0);
+      store.setBgmSettings(track: -1);
+      expect(store.bgmTrackIndex, -1);
+      expect(store.bgmVolume, 1.0); // 未改音量保持
+    });
+
     test('成就解锁幂等', () {
       final store = AppStore.inMemory();
       expect(store.unlockAchievements(['a', 'b']), ['a', 'b']);
@@ -194,6 +206,8 @@ void main() {
         PathProviderPlatform.instance = previous;
         await dir.delete(recursive: true);
       }
+    });
+
     test('LLM 配置：默认智谱 GLM 预设、Key 空；保存后可读回', () {
       final store = AppStore.inMemory();
       expect(store.llmConfig.model, 'glm-4-flash');

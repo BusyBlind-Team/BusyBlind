@@ -21,21 +21,30 @@ class BgmPlayer {
   String get trackName => _trackName;
 
   StreamSubscription<void>? _completeSub;
+  double _volume = 0.35;
 
-  static const double _volume = 0.32;
-
-  /// 随机选曲并开始播放。重复调用先停旧的再起新的。
-  /// 无音频环境（测试/无设备）静默降级为不播放。
-  Future<void> start() async {
+  /// 开始播放：[trackIndex] 为 -1 时随机选曲；[asset] 直接指定资产
+  /// （宿主已为整局解析好同一首）；[volume] 0..1。
+  /// 重复调用先停旧的再起新的。无音频环境（测试/无设备）静默降级为不播放。
+  Future<void> start({int trackIndex = -1, double volume = 0.35, String? asset}) async {
     await stop();
     try {
-      final track = SoundCatalog
-          .bgmTracks[Random().nextInt(SoundCatalog.bgmTracks.length)];
+      final tracks = SoundCatalog.bgmTracks;
+      var track = (trackIndex >= 0 && trackIndex < tracks.length)
+          ? tracks[trackIndex]
+          : tracks[Random().nextInt(tracks.length)];
+      if (asset != null) {
+        track = tracks.firstWhere(
+          (t) => SoundCatalog.catalog[t.key] == asset,
+          orElse: () => track,
+        );
+      }
       final player = AudioPlayer();
       _stopped = false;
       _paused = false;
       _asset = SoundCatalog.catalog[track.key];
       _trackName = track.name;
+      _volume = volume.clamp(0.0, 1.0);
       _completeSub = player.onPlayerComplete.listen((_) => _replayAfterGap());
       await player.setReleaseMode(ReleaseMode.stop);
       await player.setVolume(_volume);

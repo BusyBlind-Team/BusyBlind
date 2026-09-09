@@ -58,9 +58,15 @@ class CountRainSession extends PracticeSession {
         '什么都不要做，在心里默数有多少滴雨滴落下吧。三分钟后，告诉师傅你的答案。',
   );
 
+  late String _ambientKey = SoundCatalog.forestLoopKey;
+  double _ambientVolume = 0.35;
+
   @override
   Future<void> prepare(PracticeContext ctx) async {
     _ctx = ctx;
+    // 环境循环音（默认鸟鸣虫鸣）可被所选背景音乐对应替换（首页"乐"设置）。
+    _ambientKey = ctx.stringParam('ambientKey', SoundCatalog.forestLoopKey);
+    _ambientVolume = ctx.doubleParam('ambientVolume', 0.35);
     _generateRain();
   }
 
@@ -80,7 +86,7 @@ class CountRainSession extends PracticeSession {
   @override
   void start() {
     // 背景白噪声（鸟鸣虫鸣，约 -24dB）。
-    _ctx.sounds.startLoop(SoundCatalog.forestLoopKey, gain: 0.08);
+    _ctx.sounds.startLoop(_ambientKey, gain: 0.25 * _ambientVolume);
     for (final t in _rainTimesUs) {
       _ctx.scheduler.scheduleSound(t, 'rain_drop', gain: 0.9);
       // 同一刻触发视觉脉冲（雨滴渐显至半透明再渐隐）。
@@ -98,7 +104,7 @@ class CountRainSession extends PracticeSession {
     _askingReport = true;
     // 声音语言：磬一声 = 这一局听完了，请睁眼报数。
     _ctx.sounds.play(SoundCatalog.chimeSoftKey, gain: 0.5);
-    _ctx.sounds.stopLoop(SoundCatalog.forestLoopKey);
+    unawaited(_ctx.sounds.stopLoop(_ambientKey));
     // 兜底：报数页若长时间无人确认（用户走开），自动收口不发修为。
     // scheduleCallback 用会话时间轴绝对时刻：听雨 3 分钟 + 报数等待 3 分钟。
     _ctx.scheduler.scheduleCallback(_lengthUs + _askTimeoutUs, () {
@@ -132,7 +138,11 @@ class CountRainSession extends PracticeSession {
   Future<PracticeResult> finish(FinishReason r) async {
     if (_finished) return _buildResult(r);
     _finished = true;
-    await _ctx.sounds.stopLoop(SoundCatalog.forestLoopKey);
+    try {
+      await _ctx.sounds.stopLoop(_ambientKey);
+    } on Exception {
+      // 已停止则忽略。
+    }
     return _buildResult(r);
   }
 
