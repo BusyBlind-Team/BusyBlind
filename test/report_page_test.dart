@@ -41,7 +41,7 @@ AppStore storeWithSessions() {
 }
 
 Widget harness(AppStore store, {LlmClient? client}) => ProviderScope(
-      overrides: [storeProvider.overrideWithValue(store)],
+      overrides: [storeProvider.overrideWith((ref) => store)],
       child: MaterialApp(home: ReportPage(client: client)),
     );
 
