@@ -290,6 +290,11 @@ class AppStore extends ChangeNotifier {
 
   int get sessionCount => sessions.length;
 
+  /// 只有真正完成的会话才能计入“累计完成”。中断记录保留给历史回顾，
+  /// 但不能推进以完成次数为条件的成就。
+  int get completedSessionCount =>
+      sessions.where((session) => session['completed'] == true).length;
+
   void addSession({
     required String practiceId,
     required int merit,

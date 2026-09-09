@@ -244,5 +244,28 @@ void main() {
       expect(store.llmConfig.model, 'glm-4-flash'); // 回到默认预设
       expect(store.reports, isEmpty);
     });
+
+    test('中断记录不计入累计完成次数 completedSessionCount', () {
+      final store = AppStore.inMemory();
+      for (var i = 0; i < 7; i++) {
+        store.addSession(
+          practiceId: 'wooden_fish',
+          merit: 0,
+          completed: false,
+          durationMs: 0,
+        );
+      }
+      expect(store.completedSessionCount, 0);
+
+      for (var i = 0; i < 7; i++) {
+        store.addSession(
+          practiceId: 'wooden_fish',
+          merit: 1,
+          completed: true,
+          durationMs: 1000,
+        );
+      }
+      expect(store.completedSessionCount, 7);
+    });
   });
 }

@@ -374,6 +374,30 @@ void main() {
         scheduler.dispose();
       });
     });
+
+    test('连续踩滑能继续过河，但不推进下一跳难度', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = CrossRiverSession(rng: Random(1));
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        for (var i = 0; i < 5; i++) {
+          final anchor = session.dongAnchorUs;
+          final t = session.t1Us;
+          final window = max((t * 0.15).round(), 180000);
+          final releaseAt = anchor + t + (window * 1.25).round();
+          session.onInput(tap(anchor));
+          clock.advanceUs(releaseAt - clock.nowUs());
+          session.onInput(release(releaseAt));
+        }
+
+        expect(session.jumpNo, 6);
+        expect(session.t1Us, lessThanOrEqualTo(2000000));
+        scheduler.dispose();
+      });
+    });
   });
 
   group('钓花', () {

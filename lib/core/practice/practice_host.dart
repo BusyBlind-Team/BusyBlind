@@ -571,7 +571,11 @@ class _BlackScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(color: const Color(0xFF050505), child: child);
+    // ChoiceChip 等 Material 组件要求 Material 祖先；透明 Material 不改变纯黑视觉。
+    return Material(
+      type: MaterialType.transparency,
+      child: ColoredBox(color: const Color(0xFF050505), child: child),
+    );
   }
 }
 

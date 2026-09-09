@@ -4,6 +4,8 @@ import 'package:busy_blind/core/practice/practice_host.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/di.dart';
 import 'package:busy_blind/features/monk/sign_page.dart';
+import 'package:busy_blind/features/monk/meditation_page.dart';
+import 'package:busy_blind/practices/tide_breath.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
@@ -92,6 +94,23 @@ void main() {
     expect(find.text('回去'), findsOneWidget);
   });
 
+  testWidgets('空木鱼经系统返回会记录中断，但不解锁精准类成就', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(store.sessions.single['completed'], isFalse);
+    expect(store.merit, 0);
+    expect(store.isUnlocked('muyu_offset5'), isFalse);
+  });
+
   testWidgets('完成修行 → 结算页展示修为与新解锁的成就', (tester) async {
     final clock = FakeClock();
     final store = AppStore.inMemory()..touchLogin();
@@ -131,5 +150,82 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(store.signedToday, isFalse);
+  });
+
+  testWidgets('打坐经系统返回也会写入会话并结算成就', (tester) async {
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(
+      harness(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const MeditationPage()),
+            ),
+            child: const Text('开始打坐'),
+          ),
+        ),
+        store: store,
+      ),
+    );
+    await tester.tap(find.text('开始打坐'));
+    await tester.pumpAndSettle();
+    // 经过真实的每秒计时，并在五分钟提示时确认在场。
+    for (var second = 1; second <= 600; second++) {
+      await tester.pump(const Duration(seconds: 1));
+      if (second % 300 == 0) {
+        await tester.tap(find.text('——你在吗？轻触任意处——'));
+        await tester.pump();
+      }
+    }
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(store.sessions.single['practiceId'], 'meditation');
+    expect(store.isUnlocked('meditation_1'), isTrue);
+    expect(store.sessions.single['durationMs'], 600000);
+    expect(find.byType(MeditationPage), findsNothing);
+    expect(find.text('开始打坐'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('助眠结算期间不显示可点击的开始按钮', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('tide_breath');
+    await tester.pumpWidget(
+      harness(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => PracticeHostPage(
+                  factory: TideBreathSession.new,
+                  params: const {'sleepMode': true},
+                ),
+              ),
+            ),
+            child: const Text('进入助眠'),
+          ),
+        ),
+        store: store,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('进入助眠'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.tap(find.text('退出'));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    expect(find.text('开始（磬响后请闭眼）'), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    // 每一步都会在异步音量调用后安排下一个延迟，逐步推进整个淡出。
+    for (var step = 0; step < 11; step++) {
+      await tester.pump(const Duration(milliseconds: 400));
+    }
+    await tester.pumpAndSettle();
+    expect(find.byType(PracticeHostPage), findsNothing);
+    expect(find.text('进入助眠'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

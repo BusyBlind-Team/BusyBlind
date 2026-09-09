@@ -32,6 +32,8 @@ class CrossRiverSession extends PracticeSession {
   CrossRiverSession({Random? rng}) : _rng = rng ?? Random();
 
   int _jumpNo = 0; // 已上石阶数（成功+踩滑）
+  int _difficultySteps = 0; // 仅精确踏稳的石阶推进难度。
+  int _lastExpandedAt = 0;
   int _loUs = _minTUs;
   int _hiUs = _maxTUs;
   bool _variation = false; // 本跳是否为 叮-咚-咚
@@ -93,12 +95,15 @@ class CrossRiverSession extends PracticeSession {
   void _nextJump() {
     _jumpNo++;
     _jumpId++;
-    // 每 5 跳：T 范围扩大，并从第 10 跳起引入变奏。
-    if (_jumpNo > 1 && (_jumpNo - 1) % 5 == 0) {
+    // 每 5 次踏稳：T 范围扩大。踩滑仍能继续，但不应让下一跳更难。
+    if (_difficultySteps > 0 &&
+        _difficultySteps % 5 == 0 &&
+        _lastExpandedAt != _difficultySteps) {
       _loUs = (_loUs * 0.85).round();
       _hiUs = min((_hiUs * 1.15).round(), 4000000);
+      _lastExpandedAt = _difficultySteps;
     }
-    _variation = _jumpNo >= 10 && _rng.nextBool();
+    _variation = _difficultySteps >= 10 && _rng.nextBool();
     _t1Us = _loUs + _rng.nextInt(_hiUs - _loUs);
     _t2Us = _loUs + _rng.nextInt(_hiUs - _loUs);
 
@@ -167,7 +172,7 @@ class CrossRiverSession extends PracticeSession {
       notifyVisualChanged();
       return;
     }
-    // （踩滑不死，但难度不递进：不扩大范围即可。）
+    if (!slip) _difficultySteps++;
     _nextJump();
   }
 

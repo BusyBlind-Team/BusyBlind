@@ -35,6 +35,7 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
   static const int _exitHoldMs = 2000;
 
   Timer? _ticker;
+  Timer? _confirmTimer;
   int _elapsedSec = 0;
   int _nextChimeSec = _chimeIntervalSec;
   bool _awaitingConfirm = false;
@@ -81,6 +82,7 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _ticker?.cancel();
+    _confirmTimer?.cancel();
     _exitTimer?.cancel();
     _accelSub?.cancel();
     super.dispose();
@@ -114,7 +116,7 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
       _awaitingConfirm = true;
       _nextChimeSec += _chimeIntervalSec;
       ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.35);
-      Future.delayed(
+      _confirmTimer = Timer(
         const Duration(seconds: _confirmWindowSec),
         () {
           if (mounted && _awaitingConfirm) {
@@ -128,6 +130,7 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
 
   void _onTapAnywhere() {
     if (_awaitingConfirm || _confirmExpired) {
+      _confirmTimer?.cancel();
       // 确认在场（或确认窗口已过后的恢复），不惩罚。
       setState(() {
         _awaitingConfirm = false;
@@ -161,6 +164,7 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
     if (_exiting) return;
     _exiting = true;
     _ticker?.cancel();
+    _confirmTimer?.cancel();
     final store = ref.read(storeProvider);
     final minutes = _elapsedSec ~/ 60;
 
@@ -200,7 +204,8 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
           .map((a) => a.id),
     );
     await ref.read(soundBankProvider).play(SoundCatalog.chimeDoubleKey);
-    if (mounted) Navigator.of(context).maybePop();
+    // 结算已完成，直接关闭页面，避免再次触发尚未重建的 PopScope。
+    if (mounted) Navigator.of(context).pop();
   }
 
   String get _clockText {
@@ -214,18 +219,25 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
     final store = ref.watch(storeProvider);
     final capped = store.meditationEarnedToday() >= AppStore.kDailyMeditationCap;
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: _onTapAnywhere,
-        onLongPressStart: (_) => _onHoldStart(),
-        onLongPressEnd: (_) => _onHoldEnd(),
-        onLongPressCancel: _onHoldEnd,
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+    return PopScope<Object?>(
+      // 所有退出入口都先经由 _exit 写入记录/结算成就；_exit 自己完成后
+      // 允许 Navigator.pop 关闭页面。
+      canPop: _exiting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _exit();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _onTapAnywhere,
+          onLongPressStart: (_) => _onHoldStart(),
+          onLongPressEnd: (_) => _onHoldEnd(),
+          onLongPressCancel: _onHoldEnd,
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               const Spacer(flex: 3),
               const MonkFigure(dim: true),
               const Spacer(flex: 4),
@@ -267,7 +279,8 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
                       style: TextStyle(color: Color(0x2EE8DFC8), fontSize: 11),
                     ),
               const SizedBox(height: 28),
-            ],
+              ],
+            ),
           ),
         ),
       ),
