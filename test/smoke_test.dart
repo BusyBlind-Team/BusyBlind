@@ -89,6 +89,23 @@ void main() {
     expect(find.text('回去'), findsOneWidget);
   });
 
+  testWidgets('空木鱼经系统返回会记录中断，但不解锁稳定性成就', (tester) async {
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(store.sessions.single['completed'], isFalse);
+    expect(store.merit, 0);
+    expect(store.isUnlocked('muyu_steady'), isFalse);
+  });
+
   testWidgets('完成修行 → 结算页展示修为与新解锁的成就', (tester) async {
     final clock = FakeClock();
     final store = AppStore.inMemory();

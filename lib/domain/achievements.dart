@@ -47,7 +47,12 @@ final List<AchievementDef> kAchievements = [
     description: '木鱼单局稳定性标准差 ≤ 120ms',
     test: (e) {
       final std = (e.lastResult?.metrics['intervalStdUs'] as num?)?.toDouble();
-      return e.lastManifest?.id == 'wooden_fish' && std != null && std <= 120000;
+      final strikes = e.lastResult?.metrics['strikes'] as int? ?? 0;
+      // 至少三个间隔才有稳定性样本；空局或一两下不能凭 0 标准差解锁。
+      return e.lastManifest?.id == 'wooden_fish' &&
+          strikes >= 4 &&
+          std != null &&
+          std <= 120000;
     },
   ),
   AchievementDef(
@@ -55,7 +60,7 @@ final List<AchievementDef> kAchievements = [
     title: '听雨知数',
     description: '数雨平均误差 ≤ 10%',
     test: (e) {
-      final err = (e.lastResult?.metrics['avgError'] as num?)?.toDouble();
+      final err = (e.lastResult?.metrics['errorRate'] as num?)?.toDouble();
       return e.lastManifest?.id == 'count_rain' && err != null && err <= 0.10;
     },
   ),
@@ -91,6 +96,6 @@ final List<AchievementDef> kAchievements = [
     id: 'sessions_7',
     title: '日课',
     description: '累计完成 7 次修行',
-    test: (e) => e.store.sessionCount >= 7,
+    test: (e) => e.store.completedSessionCount >= 7,
   ),
 ];
