@@ -53,24 +53,28 @@ void main() {
       expect(store.merit, 7);
     });
 
-    test('花瓣收集与按档合成（待对齐 #6：4/5/6/8 瓣）', () {
+    test('花瓣按稀有度收集与合成（新改进意见：70/25/5）', () {
       final store = AppStore.inMemory();
       // 花瓣不足：合不出，也不扣花瓣。
-      store.addPetals(3);
-      expect(store.craftFlower(4), isNull);
-      expect(store.petalCount, 3);
+      for (var i = 0; i < 3; i++) {
+        store.addPetal(PetalRarity.common);
+      }
+      expect(store.craftFlower(4, PetalRarity.common), isNull);
+      expect(store.petalCountOf(PetalRarity.common), 3);
 
-      // 4 瓣档：只可能抽到桂花或丁香。
-      store.addPetals(1);
-      final drawn = store.craftFlower(4, rng: Random(7));
+      // 4 枚常见花瓣 → 常见 4 瓣花（桂花）。
+      store.addPetal(PetalRarity.common);
+      final drawn = store.craftFlower(4, PetalRarity.common, rng: Random(7));
       expect(drawn, isNotNull);
       expect(drawn!.petals, 4);
-      expect(drawn.id, anyOf('osmanthus', 'lilac'));
+      expect(drawn.id, 'osmanthus');
       expect(store.flowers, contains(drawn.id));
-      expect(store.petalCount, 0);
+      expect(store.petalCountOf(PetalRarity.common), 0);
+      // 其他稀有度桶不受影响。
+      expect(store.petalCountOf(PetalRarity.rare), 0);
     });
 
-    test('花瓣不分物种：旧版按物种存储的存量迁移为总数', () {
+    test('旧版花瓣存量迁移：物种 Map → 总数 → 常见桶', () {
       final migrated = AppStore.applyMigrations({
         'tutorialDone': false,
         'merit': 0,
@@ -78,21 +82,38 @@ void main() {
         'petals': {'sakura': 2, 'peach': 3},
       });
       expect(migrated['petals'], 5);
+
+      // 再升级一版：总数按"常见"桶入库。
+      final migrated2 = AppStore.applyMigrations({
+        'tutorialDone': false,
+        'merit': 0,
+        'sessions': <Object?>[],
+        'petals': 5,
+        'petalsByRarity': {'common': 0, 'rare': 0, 'legendary': 0},
+      });
+      expect(migrated2['petalsByRarity'], containsPair('common', 5));
     });
 
-    test('8 瓣档固定产出奇珍莲花；抽取只落在对应档位', () {
+    test('8 枚奇珍花瓣固定合成莲花；稀有度不串桶', () {
       final store = AppStore.inMemory();
-      for (var i = 0; i < 5; i++) {
-        store.addPetals(8);
-        final drawn = store.craftFlower(8, rng: Random(i));
+      for (var i = 0; i < 3; i++) {
+        for (var j = 0; j < 8; j++) {
+          store.addPetal(PetalRarity.legendary);
+        }
+        final drawn = store.craftFlower(8, PetalRarity.legendary, rng: Random(i));
         expect(drawn!.id, 'lotus');
         expect(drawn.rarity, FlowerRarity.legendary);
       }
-      // 5 瓣档：只可能出 5 瓣池里的花。
-      store.addPetals(5);
-      final five = store.craftFlower(5, rng: Random(3))!;
+      // 稀有 5 瓣档：只可能出 5 瓣稀有池里的花（海棠），且不消耗常见桶。
+      for (var i = 0; i < 5; i++) {
+        store.addPetal(PetalRarity.rare);
+      }
+      store.addPetal(PetalRarity.common);
+      final commonBefore = store.petalCountOf(PetalRarity.common);
+      final five = store.craftFlower(5, PetalRarity.rare, rng: Random(3))!;
       expect(five.petals, 5);
-      expect(five.id, anyOf('peach', 'pear', 'sakura', 'crabapple'));
+      expect(five.id, 'crabapple');
+      expect(store.petalCountOf(PetalRarity.common), commonBefore);
     });
 
     test('背景音乐设置：曲目与音量持久化，音量截断到 0..1', () {

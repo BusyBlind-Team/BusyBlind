@@ -45,6 +45,7 @@ class CrossRiverSession extends PracticeSession {
 
   // 本跳输入轨迹。
   bool _pressed = false;
+  int? _pressSessionUs; // 本次按下的会话时刻（新改进意见：松手判定以其为锚）
   final List<int> _releaseDeviationsUs = [];
   double _scoreTotal = 0; // 待对齐清单 #5：每跳 100×(1−偏移率) 累计
 
@@ -148,7 +149,11 @@ class CrossRiverSession extends PracticeSession {
     final anchor = _awaitingSecondSegment
         ? _dongAnchorUs + _t1Us
         : _dongAnchorUs;
-    final dev = releaseUs - anchor - t;
+    // 判定锚 = 咚的发声瞬间；但按点晚于咚的用户，以自己的按点为锚——
+    // 按住→松手的间隔由用户内心计数，按点与松手点共享同一份设备音频
+    // 延迟与反应差，二者相减后互相抵消，判定点落在"咚发声的一瞬间"。
+    final refBase = max(anchor, _pressSessionUs ?? anchor);
+    final dev = releaseUs - refBase - t;
     _releaseDeviationsUs.add(dev);
     // 待对齐清单 #5：本跳得分 = 100 × (1 − 偏移率)，偏移率上限 1（落水那跳得 0 分起）。
     final devRate = (dev.abs() / t).clamp(0.0, 1.0);
@@ -190,6 +195,7 @@ class CrossRiverSession extends PracticeSession {
     switch (e.phase) {
       case PointerPhase.down:
         _pressed = true;
+        _pressSessionUs = e.sessionUs;
         notifyVisualChanged();
         // 起手早晚不作硬判定，只计入曲线。
         _ctx.recorder.log('input:press', {

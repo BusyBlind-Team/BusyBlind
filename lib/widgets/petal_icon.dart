@@ -7,7 +7,11 @@ import '../theme.dart';
 
 /// 单片花瓣（钓花结算徽记等通用）。
 class PetalGlyph extends StatelessWidget {
-  const PetalGlyph({super.key, this.color = kGenericPetalColor, this.size = 20});
+  const PetalGlyph({
+    super.key,
+    this.color = kGenericPetalColor,
+    this.size = 20,
+  });
 
   final Color color;
   final double size;
@@ -22,23 +26,54 @@ class PetalGlyph extends StatelessWidget {
   }
 }
 
-/// 一朵花：按该花档位的瓣数画环形花瓣（图鉴 / 结算共用）。
+/// 一朵花：图鉴 / 结算共用。优先用正式花图（assets/art/flowers/<花种id>.webp），
+/// 资源缺失时回退到按档位瓣数的几何花瓣；`dim` 表示图鉴未收录（去饱和压暗）。
 class FlowerIcon extends StatelessWidget {
-  const FlowerIcon({super.key, required this.species, this.size = 28, this.dim = false});
+  const FlowerIcon({
+    super.key,
+    required this.species,
+    this.size = 28,
+    this.dim = false,
+  });
 
   final FlowerSpecies species;
   final double size;
   final bool dim;
 
+  /// 去饱和（图鉴"未遇"状态：花仍在、色彩未显）。
+  static const _grayFilter = ColorFilter.matrix([
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0.2126, 0.7152, 0.0722, 0, 0, //
+    0, 0, 0, 1, 0,
+  ]);
+
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    Widget art = Image.asset(
+      'assets/art/flowers/${species.id}.webp',
       width: size,
       height: size,
-      child: CustomPaint(
-        painter: _FlowerPainter(species.color, petals: species.petals, dim: dim),
+      fit: BoxFit.contain,
+      errorBuilder: (_, _, _) => SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(
+          painter: _FlowerPainter(
+            species.color,
+            petals: species.petals,
+            dim: dim,
+          ),
+        ),
       ),
     );
+    if (dim) {
+      art = Opacity(
+        opacity: 0.3,
+        child: ColorFiltered(colorFilter: _grayFilter, child: art),
+      );
+    }
+    return art;
   }
 }
 
@@ -99,26 +134,31 @@ class _FlowerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_FlowerPainter oldDelegate) =>
-      oldDelegate.color != color || oldDelegate.petals != petals || oldDelegate.dim != dim;
+      oldDelegate.color != color ||
+      oldDelegate.petals != petals ||
+      oldDelegate.dim != dim;
 }
 
-/// 图鉴合成条目：一档花 + 投入瓣数 + 抽取按钮。
+/// 图鉴合成条目：档位 + 稀有度 → 可合成的花（新改进意见：
+/// 花瓣带稀有度，投入对应稀有度的瓣数合成对应稀有度的花）。
 class CraftRow extends StatelessWidget {
   const CraftRow({
     super.key,
     required this.tierPetalCount,
+    required this.rarity,
     required this.petalCount,
     required this.onCraft,
   });
 
   final int tierPetalCount;
+  final PetalRarity rarity;
   final int petalCount;
   final VoidCallback onCraft;
 
   @override
   Widget build(BuildContext context) {
     final pool = kFlowerSpecies
-        .where((s) => s.petals == tierPetalCount)
+        .where((s) => s.petals == tierPetalCount && s.rarity.rarityKey == rarity.id)
         .toList(growable: false);
     final names = pool.map((s) => s.displayName).join(' / ');
     final canCraft = petalCount >= tierPetalCount;
@@ -176,7 +216,7 @@ class FlowerRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          FlowerIcon(species: species, dim: !owned),
+          FlowerIcon(species: species, size: 36, dim: !owned),
           const SizedBox(width: 12),
           Expanded(
             child: Text(

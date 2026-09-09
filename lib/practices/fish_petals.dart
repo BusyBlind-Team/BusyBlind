@@ -36,6 +36,18 @@ class FishPetalsSession extends PracticeSession {
   static const int _hookTimeoutUs = 4000000; // 触竿后最长握竿时长，超时自动休整
   static const int _antiIdleUs = 90000000; // 90 秒无输入自动结算
   static const double _petalChance = 0.65;
+
+  /// 钓到各稀有度花瓣的概率（新改进意见）：常见 70% / 稀有 25% / 奇珍 5%。
+  static const double _rareChance = 0.25;
+  static const double _legendaryChance = 0.05;
+
+  /// 按概率抽稀有度：常见 70% / 稀有 25% / 奇珍 5%。
+  PetalRarity rollPetalRarity() {
+    final r = _rng.nextDouble();
+    if (r < _legendaryChance) return PetalRarity.legendary;
+    if (r < _legendaryChance + _rareChance) return PetalRarity.rare;
+    return PetalRarity.common;
+  }
   static const int _meritPerPetal = 3; // 待对齐清单 #5：钓到花瓣数 × 3
 
   late PracticeContext _ctx;
@@ -69,7 +81,7 @@ class FishPetalsSession extends PracticeSession {
     name: '钓花',
     subtitle: '叮则收手，咚则空竿',
     tags: [TrainingTag.patience, TrainingTag.collect],
-    eyeMode: EyeMode.openThenClosed,
+    eyeMode: EyeMode.eyesClosed,
     typicalLength: Duration(minutes: 4),
     meritBase: 12,
     iconKey: 'fish_petals',
@@ -208,10 +220,17 @@ class FishPetalsSession extends PracticeSession {
         if (_state == _RodState.hooked) {
           final heldUs = _hookAtUs - _castStartUs;
           if (_hookIsPetal && now - _hookAtUs <= _catchWindowUs) {
-            // 收杆成功：花瓣入库。
+            // 收杆成功：按稀有度概率抽花瓣入库（常见70%/稀有25%/奇珍5%）。
+            final rarity = rollPetalRarity();
             _petalsCaught++;
             _waitTimesUs.add(heldUs);
-            _caught.add(const Reward(kind: RewardKind.petal, id: 'petal', label: '花瓣'));
+            _caught.add(
+              Reward(
+                kind: RewardKind.petal,
+                id: rarity.id,
+                label: '花瓣（\${rarity.label}）',
+              ),
+            );
             _catchPulse++;
             _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.5);
             _ctx.recorder.log('catch', {'petals': _petalsCaught});
@@ -296,6 +315,8 @@ class FishPetalsSession extends PracticeSession {
             accent: _petalsCaught > 0 || (_state == _RodState.hooked && _hookIsPetal)
                 ? 1
                 : 0,
+            // 删除钓竿模型，只保留俯视浮漂层（新改进意见）。
+            foreground: false,
           ),
         ),
         // 俯视池塘层（改进列表 #17）：花瓣/杂物漂流、浮漂落正中惊散、
@@ -307,6 +328,7 @@ class FishPetalsSession extends PracticeSession {
               hookPulse: _hookPulse,
               hookIsPetal: _hookIsPetal,
               catchPulse: _catchPulse,
+              onSink: () => _ctx.sounds.play(SoundCatalog.fishSinkKey, gain: 0.9),
               holdSeconds: () {
                 if (_state != _RodState.casting) return 0.0;
                 return (_ctx.scheduler.nowUs() - _castStartUs) / 1e6;
@@ -446,6 +468,7 @@ class _PondLayer extends StatefulWidget {
     required this.hookIsPetal,
     required this.catchPulse,
     required this.holdSeconds,
+    required this.onSink,
   });
 
   final bool showBuoy;
@@ -453,6 +476,9 @@ class _PondLayer extends StatefulWidget {
   final bool hookIsPetal;
   final int catchPulse;
   final double Function() holdSeconds;
+
+  /// 上钩的东西沉没消失时回调（播放沉没声，新改进意见）。
+  final VoidCallback onSink;
 
   @override
   State<_PondLayer> createState() => _PondLayerState();
@@ -609,6 +635,7 @@ class _PondLayerState extends State<_PondLayer>
           ..hooked = false
           ..sinking = true;
         _scheduleRespawn();
+        widget.onSink();
         _hooked = null;
       }
     }

@@ -21,6 +21,7 @@ abstract final class SoundCatalog {
   static const String heDongKey = 'he_dong';
   static const String fishDingKey = 'fish_ding';
   static const String fishDongKey = 'fish_dong';
+  static const String fishSinkKey = 'fish_sink';
   static const String windChimeKey = 'wind_chime';
   static const String swishKey = 'swish';
   static const String tideLoopKey = 'tide_loop';
@@ -63,7 +64,10 @@ abstract final class SoundCatalog {
     'he_dong': 'sfx/he_dong.mp3',
     'fish_ding': 'sfx/fish_ding.mp3',
     'fish_dong': 'sfx/fish_dong.mp3',
-    'rain_drop': 'sfx/rain_drop.mp3',
+    'rain_drop_1': 'sfx/rain_drop_1.mp3',
+    'rain_drop_2': 'sfx/rain_drop_2.mp3',
+    'rain_drop_3': 'sfx/rain_drop_3.mp3',
+    'fish_sink': 'sfx/fish_sink.mp3',
     'bell_low': 'sfx/bell_low.mp3',
     'wind_chime': 'sfx/wind_chime.mp3',
     'swish': 'sfx/swish.mp3',

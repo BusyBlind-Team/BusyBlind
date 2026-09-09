@@ -103,10 +103,10 @@ class BgmPlayer {
     if (_player == player) _player = null;
   }
 
-  /// 放完歇一秒，从头再放；歇的期间退后台 → 标记待播，恢复时再放。
+  /// 放完歇两秒，从头再放；歇的期间退后台 → 标记待播，恢复时再放。
   Future<void> _replayAfterGap() async {
     if (_stopped) return;
-    await Future<void>.delayed(const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(seconds: 2));
     if (_stopped) return;
     if (_paused) {
       _pendingPlay = true;

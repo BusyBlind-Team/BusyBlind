@@ -54,8 +54,8 @@ void main() {
   tearDownAll(() => goldenFileComparator = defaultGoldenComparator);
 
   test('声音目录全部切到 MP3，且总体积至少减少一半', () {
-    // 16 个 SFX (mp3) + 5 首 BGM (m4a)。
-    expect(SoundCatalog.catalog, hasLength(21));
+    // SFX (mp3) + 5 首 BGM (m4a)。
+    expect(SoundCatalog.catalog, hasLength(24));
     expect(
       SoundCatalog.catalog.entries.every(
         (e) =>
@@ -238,9 +238,9 @@ void main() {
       );
     }
   });
-  testWidgets('中文命名图片资产与 BGM 可加载', (tester) async {
+  testWidgets('图片与 BGM 资产可加载（ASCII 资产名，规避安卓非 ASCII 路径问题）', (tester) async {
     await tester.runAsync(() async {
-      final images = ['木鱼', '敲木鱼的棒子', '菩提叶', '雨滴'];
+      final images = ['muyu', 'muyu_stick', 'bodhi_leaf', 'raindrop'];
       for (final name in images) {
         final data = await rootBundle.load('assets/images/$name.png');
         expect(data.lengthInBytes, greaterThan(0), reason: name);

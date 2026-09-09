@@ -156,21 +156,21 @@ class _LeafSlipState extends State<_LeafSlip> with SingleTickerProviderStateMixi
                 children: [
                   SizedBox(
                     width: 300,
-                    height: 226,
+                    height: 300,
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
                         Image.asset(
-                          'assets/images/菩提叶.png',
+                          'assets/images/bodhi_leaf.png',
                           width: 300,
-                          height: 226,
+                          height: 300,
                           fit: BoxFit.contain,
                           errorBuilder: (_, _, _) =>
                               const ColoredBox(color: Color(0xFFC9CFA8)),
                         ),
                         // 签文排在叶面中央区域，不越出叶缘。
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 52),
+                          padding: const EdgeInsets.symmetric(horizontal: 60),
                           child: Opacity(
                             opacity: textT,
                             child: Text(

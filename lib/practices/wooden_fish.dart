@@ -330,7 +330,7 @@ class _MuyuViewState extends State<_MuyuView> with SingleTickerProviderStateMixi
                 alignment: Alignment.bottomLeft,
                 angle: stickAngle,
                 child: Image.asset(
-                  'assets/images/敲木鱼的棒子.png',
+                  'assets/images/muyu_stick.png',
                   width: 150,
                   errorBuilder: (_, _, _) => const SizedBox(width: 150, height: 48),
                 ),
@@ -342,7 +342,7 @@ class _MuyuViewState extends State<_MuyuView> with SingleTickerProviderStateMixi
               child: ColorFiltered(
                 colorFilter: ColorFilter.mode(muyuTint, BlendMode.srcATop),
                 child: Image.asset(
-                  'assets/images/木鱼.png',
+                  'assets/images/muyu.png',
                   width: 190,
                   errorBuilder: (_, _, _) =>
                       const SizedBox(width: 190, height: 135),

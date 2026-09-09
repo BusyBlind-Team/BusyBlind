@@ -69,10 +69,13 @@ flutter:
     - assets/sfx/
     - assets/bgm/
     - assets/images/practices/
-    - "assets/images/木鱼.png"
-    - "assets/images/敲木鱼的棒子.png"
-    - "assets/images/菩提叶.png"
-    - "assets/images/雨滴.png"
+    - assets/art/flowers/
+    - assets/art/illustrations/
+    - assets/art/ui/
+    - assets/images/muyu.png
+    - assets/images/muyu_stick.png
+    - assets/images/bodhi_leaf.png
+    - assets/images/raindrop.png
 
   # To add assets to your application, add an assets section, like this:
   # assets:

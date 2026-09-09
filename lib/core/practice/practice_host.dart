@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
 import '../../domain/achievements.dart';
+import '../../domain/petals.dart';
 import '../../theme.dart';
 import '../audio/bgm_player.dart';
 import '../audio/event_scheduler.dart';
@@ -260,8 +261,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       for (final reward in result.extraRewards) {
         switch (reward.kind) {
           case RewardKind.petal:
-            // 花瓣不分物种（待对齐清单 #6），每片 +1 总数。
-            store.addPetals(1);
+            // 花瓣带稀有度（新改进意见）：reward.id = common/rare/legendary。
+            store.addPetal(petalRarityById(reward.id));
           case RewardKind.slip:
             break;
         }

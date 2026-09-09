@@ -87,8 +87,14 @@ class CountRainSession extends PracticeSession {
   void start() {
     // 背景白噪声（鸟鸣虫鸣，约 -24dB）。
     _ctx.sounds.startLoop(_ambientKey, gain: 0.25 * _ambientVolume);
+    const dropSounds = ['rain_drop_1', 'rain_drop_2', 'rain_drop_3'];
     for (final t in _rainTimesUs) {
-      _ctx.scheduler.scheduleSound(t, 'rain_drop', gain: 0.9);
+      // 每滴雨从三段音色里随机选一个（新改进意见）。
+      _ctx.scheduler.scheduleSound(
+        t,
+        dropSounds[_rng.nextInt(dropSounds.length)],
+        gain: 0.9,
+      );
       // 同一刻触发视觉脉冲（雨滴渐显至半透明再渐隐）。
       _ctx.scheduler.scheduleCallback(t, () {
         _dropPulse++;
@@ -439,7 +445,7 @@ class _RainDropFlashState extends State<_RainDropFlash>
           child: Opacity(
             opacity: opacity,
             child: Image.asset(
-              'assets/images/雨滴.png',
+              'assets/images/raindrop.png',
               width: 64,
               height: 64,
               errorBuilder: (_, _, _) => const SizedBox.shrink(),
