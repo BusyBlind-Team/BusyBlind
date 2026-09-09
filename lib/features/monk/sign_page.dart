@@ -27,15 +27,14 @@ class _SignPageState extends ConsumerState<SignPage> {
     if (_drawing || ref.read(storeProvider).signedToday) return;
     setState(() => _drawing = true);
     Future.delayed(const Duration(milliseconds: 700), () {
+      if (!mounted) return;
       final store = ref.read(storeProvider);
       final slip = kSignSlips[Random().nextInt(kSignSlips.length)];
       store.recordSign(slipId: slip.id, text: slip.text, fortune: slip.fortune);
-      if (mounted) {
-        setState(() {
-          _drawing = false;
-          _todaySlip = slip;
-        });
-      }
+      setState(() {
+        _drawing = false;
+        _todaySlip = slip;
+      });
     });
   }
 

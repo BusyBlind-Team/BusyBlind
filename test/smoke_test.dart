@@ -3,6 +3,7 @@ import 'package:busy_blind/core/audio/sound_bank.dart';
 import 'package:busy_blind/core/practice/practice_host.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/di.dart';
+import 'package:busy_blind/features/monk/sign_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
@@ -111,5 +112,17 @@ void main() {
     expect(find.text('修为 +1'), findsOneWidget);
     expect(find.textContaining('初入山门'), findsOneWidget); // 首次修行成就可见
     expect(store.isUnlocked('first_session'), isTrue);
+  });
+
+  testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(harness(home: const SignPage(), store: store));
+    await tester.tap(find.text('抽签'));
+    await tester.pumpWidget(const SizedBox());
+
+    await tester.pump(const Duration(milliseconds: 800));
+
+    expect(tester.takeException(), isNull);
+    expect(store.signedToday, isFalse);
   });
 }
