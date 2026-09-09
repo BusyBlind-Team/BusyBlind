@@ -6,6 +6,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # 允许在 Actions 页手动派发（fork 仓库验证最新提交用）。
+  workflow_dispatch:
 
 jobs:
   check:
