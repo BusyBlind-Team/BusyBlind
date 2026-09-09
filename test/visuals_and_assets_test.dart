@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'dart:typed_data';
+
 
 import 'package:busy_blind/core/audio/event_scheduler.dart';
 import 'package:busy_blind/core/audio/input_capture.dart';
@@ -11,6 +11,7 @@ import 'package:busy_blind/core/practice/practice_session.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:busy_blind/widgets/practice_scene.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
@@ -53,19 +54,31 @@ void main() {
   tearDownAll(() => goldenFileComparator = defaultGoldenComparator);
 
   test('声音目录全部切到 MP3，且总体积至少减少一半', () {
-    expect(SoundCatalog.catalog, hasLength(16));
+    // 16 个 SFX (mp3) + 5 首 BGM (m4a)。
+    expect(SoundCatalog.catalog, hasLength(21));
     expect(
-      SoundCatalog.catalog.values.every((path) => path.endsWith('.mp3')),
+      SoundCatalog.catalog.entries.every(
+        (e) =>
+            (e.key.startsWith('bgm_') && e.value.endsWith('.m4a')) ||
+            (!e.key.startsWith('bgm_') && e.value.endsWith('.mp3')),
+      ),
       isTrue,
     );
 
-    var totalBytes = 0;
+    var sfxBytes = 0;
+    var bgmBytes = 0;
     for (final path in SoundCatalog.catalog.values) {
       final file = File('assets/$path');
       expect(file.existsSync(), isTrue, reason: '缺少音效：${file.path}');
-      totalBytes += file.lengthSync();
+      if (path.startsWith('bgm/')) {
+        bgmBytes += file.lengthSync();
+      } else {
+        sfxBytes += file.lengthSync();
+      }
     }
-    expect(totalBytes, lessThan(2376370 ~/ 2));
+    // 压缩守门只针对 SFX；BGM 为正式音乐素材（5 首 × ~80s AAC ≈ 6MB）。
+    expect(sfxBytes, lessThan(2376370 ~/ 2));
+    expect(bgmBytes, lessThan(8 * 1024 * 1024));
     expect(
       Directory('assets/sfx')
           .listSync()
@@ -225,4 +238,39 @@ void main() {
       );
     }
   });
+  testWidgets('中文命名图片资产与 BGM 可加载', (tester) async {
+    await tester.runAsync(() async {
+      final images = ['木鱼', '敲木鱼的棒子', '菩提叶', '雨滴'];
+      for (final name in images) {
+        final data = await rootBundle.load('assets/images/$name.png');
+        expect(data.lengthInBytes, greaterThan(0), reason: name);
+      }
+      final bgm = await rootBundle.load('assets/bgm/bgm_liming.m4a');
+      expect(bgm.lengthInBytes, greaterThan(0));
+    });
+  });
+
+  test('Android 主清单声明 INTERNET 权限（修炼报告联网）', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(manifest, contains('android.permission.INTERNET'));
+  });
+
+  test('BGM 曲目解析：无 → null，随机 → 有效曲目，固定 → 对应曲目', () {
+    expect(SoundCatalog.resolveTrack(SoundCatalog.bgmTrackNone), isNull);
+    final randomPick = SoundCatalog.resolveTrack(SoundCatalog.bgmTrackRandom);
+    expect(randomPick, isNotNull);
+    expect(
+      SoundCatalog.bgmTracks.contains(randomPick),
+      isTrue,
+      reason: '随机结果必须是曲目表里的一首',
+    );
+    expect(
+      SoundCatalog.resolveTrack(2)?.name,
+      SoundCatalog.bgmTracks[2].name,
+    );
+    // 越界设置按随机处理，不会崩。
+    expect(SoundCatalog.resolveTrack(99), isNotNull);
+  });
+
 }

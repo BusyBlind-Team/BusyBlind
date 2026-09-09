@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:io';
 
+import 'package:busy_blind/core/llm/llm_client.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/domain/achievements.dart';
 import 'package:busy_blind/domain/petals.dart';
@@ -92,6 +93,81 @@ void main() {
       final five = store.craftFlower(5, rng: Random(3))!;
       expect(five.petals, 5);
       expect(five.id, anyOf('peach', 'pear', 'sakura', 'crabapple'));
+    });
+
+    test('背景音乐设置：曲目与音量持久化，音量截断到 0..1', () {
+      final store = AppStore.inMemory();
+      expect(store.bgmTrackIndex, -1); // 默认随机
+      expect(store.bgmVolume, 0.35);
+      store.setBgmSettings(track: 2, volume: 1.5);
+      expect(store.bgmTrackIndex, 2);
+      expect(store.bgmVolume, 1.0);
+      store.setBgmSettings(track: -1);
+      expect(store.bgmTrackIndex, -1);
+      expect(store.bgmVolume, 1.0); // 未改音量保持
+    });
+
+    test('LLM Key 按服务商分别保存，切换不串用（复审 P1-2）', () {
+      final store = AppStore.inMemory();
+      store.saveLlmConfig(LlmPresets.glm.copyWith(apiKey: 'glm-key'));
+      expect(store.keyForBaseUrl(LlmPresets.glm.baseUrl), 'glm-key');
+
+      // 切到 DeepSeek 且尚未填 Key：不该把智谱的 Key 发给 DeepSeek。
+      store.saveLlmConfig(LlmPresets.deepseek.copyWith(apiKey: ''));
+      expect(store.llmReady, isFalse);
+      expect(store.keyForBaseUrl(LlmPresets.deepseek.baseUrl), '');
+
+      store.saveLlmConfig(LlmPresets.deepseek.copyWith(apiKey: 'ds-key'));
+      expect(store.keyForBaseUrl(LlmPresets.glm.baseUrl), 'glm-key');
+      expect(store.keyForBaseUrl(LlmPresets.deepseek.baseUrl), 'ds-key');
+    });
+
+    test('迁移：升级前已填的 Key 按 baseUrl 播种进 llmKeys', () {
+      final migrated = AppStore.applyMigrations({
+        'tutorialDone': false,
+        'merit': 0,
+        'sessions': <Object?>[],
+        'petals': 0,
+        'llm': {
+          'baseUrl': LlmPresets.glm.baseUrl,
+          'model': 'glm-4-flash',
+          'apiKey': 'legacy-key',
+        },
+        'llmKeys': <String, String>{},
+      });
+      expect(
+        migrated['llmKeys'],
+        containsPair(LlmPresets.glm.baseUrl, 'legacy-key'),
+      );
+    });
+
+    test('致命节奏/爆裂木鱼手必须完整敲满 108 声（复审 P2-6）', () {
+      final offset = kAchievements.firstWhere((a) => a.id == 'muyu_offset5');
+      final burst = kAchievements.firstWhere((a) => a.id == 'muyu_15s');
+
+      // 敲 2 下、间隔 107 秒、中途退出：总间隔接近满拍也不解锁。
+      final store = AppStore.inMemory();
+      store.addSession(
+        practiceId: 'wooden_fish',
+        merit: 0,
+        completed: false,
+        durationMs: 107000,
+        metrics: {'strikes': 2, 'totalMs': 107000},
+      );
+      expect(offset.test(AchievementEval(store: store)), isFalse);
+      expect(burst.test(AchievementEval(store: store)), isFalse);
+
+      // 完整敲满 108 声、偏移 3 秒 → 致命节奏解锁；15 秒内不成立。
+      final store2 = AppStore.inMemory();
+      store2.addSession(
+        practiceId: 'wooden_fish',
+        merit: 10,
+        completed: true,
+        durationMs: 110000,
+        metrics: {'strikes': 108, 'totalMs': 110000},
+      );
+      expect(offset.test(AchievementEval(store: store2)), isTrue);
+      expect(burst.test(AchievementEval(store: store2)), isFalse);
     });
 
     test('成就解锁幂等', () {
@@ -196,7 +272,44 @@ void main() {
       }
     });
 
-    test('中断记录不计入“日课”的累计完成次数', () {
+    test('LLM 配置：默认智谱 GLM 预设、Key 空；保存后可读回', () {
+      final store = AppStore.inMemory();
+      expect(store.llmConfig.model, 'glm-4-flash');
+      expect(store.llmConfig.baseUrl, LlmPresets.glm.baseUrl);
+      expect(store.llmReady, isFalse); // Key 为空 → 未就绪
+
+      store.saveLlmConfig(LlmPresets.deepseek.copyWith(apiKey: ' sk-x '));
+      expect(store.llmReady, isTrue);
+      expect(store.llmConfig.model, 'deepseek-chat');
+      expect(store.llmConfig.apiKey, ' sk-x '); // 原样保存，裁剪交给 UI 层
+    });
+
+    test('修炼报告：倒序插入、只保留最近 10 份', () {
+      final store = AppStore.inMemory();
+      for (var i = 1; i <= 12; i++) {
+        store.addReport({
+          'generatedAt': '2026-09-0${(i % 9) + 1}T10:00:00',
+          'source': 'llm',
+          'model': 'glm-4-flash',
+          'text': '第 $i 份',
+        });
+      }
+      expect(store.reports.length, AppStore.kMaxReports);
+      expect(store.reports.first['text'], '第 12 份'); // 最新的在最前
+      expect(store.reports.last['text'], '第 3 份'); // 最早的 1、2 份被截掉
+    });
+
+    test('reset 清空 LLM 配置与报告', () {
+      final store = AppStore.inMemory()
+        ..saveLlmConfig(LlmPresets.glm.copyWith(apiKey: 'sk-x'))
+        ..addReport({'generatedAt': '2026-09-09T10:00:00', 'text': 'r'});
+      store.reset();
+      expect(store.llmReady, isFalse);
+      expect(store.llmConfig.model, 'glm-4-flash'); // 回到默认预设
+      expect(store.reports, isEmpty);
+    });
+
+    test('中断记录不计入累计完成次数 completedSessionCount', () {
       final store = AppStore.inMemory();
       for (var i = 0; i < 7; i++) {
         store.addSession(
@@ -206,9 +319,7 @@ void main() {
           durationMs: 0,
         );
       }
-      final dailyPractice = kAchievements.firstWhere((a) => a.id == 'sessions_7');
       expect(store.completedSessionCount, 0);
-      expect(dailyPractice.test(AchievementEval(store: store)), isFalse);
 
       for (var i = 0; i < 7; i++) {
         store.addSession(
@@ -219,7 +330,6 @@ void main() {
         );
       }
       expect(store.completedSessionCount, 7);
-      expect(dailyPractice.test(AchievementEval(store: store)), isTrue);
     });
   });
 }

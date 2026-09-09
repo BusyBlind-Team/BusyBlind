@@ -10,13 +10,20 @@ class FlowerSpecies {
   const FlowerSpecies({
     required this.id,
     required this.name,
+    required this.displayName,
     required this.color,
     required this.petals,
     required this.rarity,
   });
 
   final String id;
+
+  /// 单字简称（花瓣图标/结算徽记用）。
   final String name;
+
+  /// 全名（图鉴展示用：丁香花、海棠、水仙……见改进列表花名修正）。
+  final String displayName;
+
   final Color color;
 
   /// 合成该档花需要投入的花瓣数（4 / 5 / 6 / 8）。
@@ -36,6 +43,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'osmanthus',
     name: '桂',
+    displayName: '桂花',
     color: Color(0xFFF3D9A4),
     petals: 4,
     rarity: FlowerRarity.common,
@@ -43,6 +51,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'lilac',
     name: '丁',
+    displayName: '丁香花',
     color: Color(0xFFC7A6D9),
     petals: 4,
     rarity: FlowerRarity.rare,
@@ -51,6 +60,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'peach',
     name: '桃',
+    displayName: '桃花',
     color: Color(0xFFF5A79A),
     petals: 5,
     rarity: FlowerRarity.common,
@@ -58,6 +68,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'pear',
     name: '梨',
+    displayName: '梨花',
     color: Color(0xFFE7EFD2),
     petals: 5,
     rarity: FlowerRarity.common,
@@ -65,6 +76,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'sakura',
     name: '樱',
+    displayName: '樱花',
     color: Color(0xFFF2B8C6),
     petals: 5,
     rarity: FlowerRarity.common,
@@ -72,6 +84,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'crabapple',
     name: '海',
+    displayName: '海棠',
     color: Color(0xFFE88B9D),
     petals: 5,
     rarity: FlowerRarity.rare,
@@ -80,6 +93,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'winterJasmine',
     name: '迎',
+    displayName: '迎春花',
     color: Color(0xFFEFD98A),
     petals: 6,
     rarity: FlowerRarity.common,
@@ -87,6 +101,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'narcissus',
     name: '仙',
+    displayName: '水仙',
     color: Color(0xFFDDE8D0),
     petals: 6,
     rarity: FlowerRarity.rare,
@@ -94,6 +109,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'lily',
     name: '百',
+    displayName: '百合花',
     color: Color(0xFFEDE6F2),
     petals: 6,
     rarity: FlowerRarity.rare,
@@ -102,6 +118,7 @@ const List<FlowerSpecies> kFlowerSpecies = [
   FlowerSpecies(
     id: 'lotus',
     name: '莲',
+    displayName: '莲花',
     color: Color(0xFFE8A0A8),
     petals: 8,
     rarity: FlowerRarity.legendary,

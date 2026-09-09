@@ -120,7 +120,7 @@ class CraftRow extends StatelessWidget {
     final pool = kFlowerSpecies
         .where((s) => s.petals == tierPetalCount)
         .toList(growable: false);
-    final names = pool.map((s) => '${s.name}花').join(' / ');
+    final names = pool.map((s) => s.displayName).join(' / ');
     final canCraft = petalCount >= tierPetalCount;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -180,7 +180,7 @@ class FlowerRow extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              '${species.name}花 · ${species.petals} 瓣 · ${species.rarityLabel}',
+              '${species.displayName} · ${species.petals} 瓣 · ${species.rarityLabel}',
               style: TextStyle(
                 color: owned ? AppTheme.ink : AppTheme.inkFaint,
                 fontSize: 14,

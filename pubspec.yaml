@@ -38,6 +38,8 @@ dependencies:
   path_provider: ^2.1.6
   flutter_riverpod: ^3.4.3
   sensors_plus: ^7.1.0
+  wakelock_plus: ^1.2.8
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:
@@ -65,7 +67,12 @@ flutter:
 
   assets:
     - assets/sfx/
+    - assets/bgm/
     - assets/images/practices/
+    - "assets/images/木鱼.png"
+    - "assets/images/敲木鱼的棒子.png"
+    - "assets/images/菩提叶.png"
+    - "assets/images/雨滴.png"
 
   # To add assets to your application, add an assets section, like this:
   # assets:

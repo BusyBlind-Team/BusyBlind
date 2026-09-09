@@ -1,7 +1,6 @@
 import '../../practices/count_rain.dart';
 import '../../practices/cross_river.dart';
 import '../../practices/fish_petals.dart';
-import '../../practices/sit_quiet.dart';
 import '../../practices/tide_breath.dart';
 import '../../practices/wooden_fish.dart';
 import 'practice_manifest.dart';
@@ -17,7 +16,7 @@ import 'practice_session.dart';
 typedef PracticeSessionFactory = PracticeSession Function();
 
 const List<PracticeSessionFactory> practiceFactories = [
-  SitQuietSession.new, // 静坐：框架验收用例 + 教程试玩
+  // 静坐已从列表移除（改进列表）；SitQuietSession 保留给教程 60 秒试玩。
   WoodenFishSession.new, // 木鱼
   CountRainSession.new, // 数雨
   TideBreathSession.new, // 听潮

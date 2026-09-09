@@ -166,4 +166,41 @@ void main() {
     expect(clock.controller.hasListener, isFalse);
     await clock.controller.close();
   });
+
+  testWidgets('偏离节拍的点击不计入校准（复审 P2-4）', (tester) async {
+    final clock = BeatClock();
+    final sounds = SilentSoundBank();
+    await tester.pumpWidget(
+      calibrationHarness(AppStore.inMemory(), clock, sounds),
+    );
+
+    await tester.tap(find.text('开始校准'));
+    await tester.pump();
+
+    // 第一声节拍：此刻点击有效（1/5）。
+    clock.advanceUs(1200000);
+    clock.controller.add(clock.nowUs());
+    await tester.pump();
+    await tester.tapAt(const Offset(100, 300));
+    await tester.pump();
+
+    // 偏移 800ms（超出 ±600ms 判定窗）：点击不计入。
+    clock.advanceUs(800000);
+    await tester.pump();
+    await tester.tapAt(const Offset(100, 300));
+    await tester.pump();
+    expect(find.textContaining('校准完成'), findsNothing);
+
+    // 回到正拍继续点满 5 次 → 校准完成并停订阅。
+    for (var i = 0; i < 4; i++) {
+      clock.advanceUs(1200000);
+      clock.controller.add(clock.nowUs());
+      await tester.pump();
+      await tester.tapAt(const Offset(100, 300));
+      await tester.pump();
+    }
+    expect(find.textContaining('校准完成'), findsOneWidget);
+    expect(clock.controller.hasListener, isFalse);
+    await clock.controller.close();
+  });
 }

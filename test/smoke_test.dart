@@ -55,10 +55,10 @@ void main() {
     expect(find.text('禅'), findsOneWidget);
     expect(find.text('友'), findsOneWidget);
 
-    // 滑到左页签「修」：六个修行条目齐全。
+    // 滑到左页签「修」：五个修行条目齐全（静坐已按改进列表移除）。
     await tester.drag(find.byType(PageView), const Offset(500, 0));
     await tester.pumpAndSettle();
-    expect(find.text('静坐'), findsOneWidget);
+    expect(find.text('静坐'), findsNothing);
     expect(find.text('木鱼'), findsOneWidget);
     expect(find.text('数雨'), findsOneWidget);
     expect(find.text('听潮'), findsOneWidget);
@@ -73,8 +73,12 @@ void main() {
   });
 
   testWidgets('修行运行中触发系统返回 → 拦截为"用户结束"并出结算页', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: WoodenFishSession.new)),
+      harness(
+        home: PracticeHostPage(factory: WoodenFishSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -91,8 +95,8 @@ void main() {
     expect(find.text('回去'), findsOneWidget);
   });
 
-  testWidgets('空木鱼经系统返回会记录中断，但不解锁稳定性成就', (tester) async {
-    final store = AppStore.inMemory();
+  testWidgets('空木鱼经系统返回会记录中断，但不解锁精准类成就', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
     await tester.pumpWidget(
       harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
     );
@@ -105,12 +109,12 @@ void main() {
 
     expect(store.sessions.single['completed'], isFalse);
     expect(store.merit, 0);
-    expect(store.isUnlocked('muyu_steady'), isFalse);
+    expect(store.isUnlocked('muyu_offset5'), isFalse);
   });
 
   testWidgets('完成修行 → 结算页展示修为与新解锁的成就', (tester) async {
     final clock = FakeClock();
-    final store = AppStore.inMemory();
+    final store = AppStore.inMemory()..touchLogin();
     await tester.pumpWidget(
       harness(
         home: PracticeHostPage(factory: SitQuietSession.new),
@@ -130,8 +134,28 @@ void main() {
 
     expect(find.text('修行结束'), findsOneWidget);
     expect(find.text('修为 +1'), findsOneWidget);
-    expect(find.textContaining('初入山门'), findsOneWidget); // 首次修行成就可见
-    expect(store.isUnlocked('first_session'), isTrue);
+    expect(find.textContaining('刹那'), findsOneWidget); // 登录成就可见
+    expect(store.isUnlocked('login_1'), isTrue);
+    expect(store.isUnlocked('level_langzi'), isTrue); // 浪子档随 1 点修为达成
+    // 教程试玩是"静坐"（sit_quiet），不计入打坐（meditation）成就。
+    expect(store.isUnlocked('meditation_1'), isFalse);
+  });
+
+  testWidgets('背景音乐选"无"：修行仍正常开始（复审 P1）', (tester) async {
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('wooden_fish')
+      ..setBgmSettings(track: -2); // 无背景音乐
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+
+    // 点开始后必须真正进入运行态（退出按钮可见），而不是停在开始界面。
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(find.text('退出'), findsOneWidget);
+    expect(find.text('开始'), findsNothing);
+    expect(find.textContaining('木 鱼'), findsOneWidget);
   });
 
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {
@@ -176,7 +200,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(store.sessions.single['practiceId'], 'meditation');
-    expect(store.isUnlocked('meditate_10'), isTrue);
+    expect(store.isUnlocked('meditation_1'), isTrue);
     expect(store.sessions.single['durationMs'], 600000);
     expect(find.byType(MeditationPage), findsNothing);
     expect(find.text('开始打坐'), findsOneWidget);
@@ -184,6 +208,7 @@ void main() {
   });
 
   testWidgets('助眠结算期间不显示可点击的开始按钮', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('tide_breath');
     await tester.pumpWidget(
       harness(
         home: Builder(
@@ -199,14 +224,15 @@ void main() {
             child: const Text('进入助眠'),
           ),
         ),
+        store: store,
       ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('进入助眠'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('开始（磬响后请闭眼）'));
+    await tester.tap(find.text('开始'));
     await tester.pump(const Duration(milliseconds: 16));
-    await tester.tap(find.text('结束'));
+    await tester.tap(find.text('退出'));
     await tester.pump(const Duration(milliseconds: 16));
 
     expect(find.text('开始（磬响后请闭眼）'), findsNothing);

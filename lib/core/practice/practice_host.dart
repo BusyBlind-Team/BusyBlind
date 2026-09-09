@@ -1,17 +1,22 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
 import '../../domain/achievements.dart';
 import '../../theme.dart';
+import '../audio/bgm_player.dart';
 import '../audio/event_scheduler.dart';
 import '../audio/input_capture.dart';
 import '../audio/session_recorder.dart';
+import '../audio/sound_bank.dart';
 import '../audio/sound_catalog.dart';
 import 'practice_manifest.dart';
 import 'practice_registry.dart';
 import 'practice_result.dart';
 import 'practice_session.dart';
+import 'practice_tutorials.dart';
 import 'practice_types.dart';
 
 /// 修行宿主：生命周期调度、中断恢复、结算收口。
@@ -33,7 +38,7 @@ class PracticeHostPage extends ConsumerStatefulWidget {
 }
 
 class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final PracticeSession _session;
   EventScheduler? _scheduler;
   PracticeContext? _ctx;
@@ -44,11 +49,24 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   PracticeResult? _result;
   List<String> _freshAchievements = const [];
 
+  // 首次教程（改进列表）：每个修行第一次打开，开始界面之前强制浮窗教程。
+  bool _tutorialDone = false;
+
+  // 修行 BGM（改进列表）：随机一首 + 顶部小字唱片机。
+  final BgmPlayer _bgm = BgmPlayer();
+  String _bgmName = '';
+  late final AnimationController _bgmSpin;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _bgmSpin = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    );
     _session = widget.factory();
+    _tutorialDone = ref.read(storeProvider).isTutorialSeen(_session.manifest.id);
     _bootstrap();
   }
 
@@ -59,13 +77,29 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     late final EventScheduler scheduler;
     final recorder = SessionRecorder(() => scheduler.nowUs());
     scheduler = EventScheduler(clock, sounds, recorder: recorder);
+
+    // 背景音乐设置（首页"乐"入口）：选了曲目则本局固定一首，BGM 与
+    // 两个循环环境音（数雨/听潮）对应替换为同一首；选"无"则不播 BGM、
+    // 环境音回退各自的默认音效。
+    final store = ref.read(storeProvider);
+    final resolved = SoundCatalog.resolveTrack(store.bgmTrackIndex);
+    final params = {
+      ...widget.params,
+      if (resolved != null) ...{
+        'bgmAsset': SoundCatalog.catalog[resolved.key],
+        'bgmVolume': store.bgmVolume,
+        'ambientKey': resolved.key,
+        'ambientVolume': store.bgmVolume,
+      },
+    };
+
     final ctx = PracticeContext(
       clock: clock,
       scheduler: scheduler,
       sounds: sounds,
       recorder: recorder,
       input: input,
-      params: widget.params,
+      params: params,
       requestFinish: _requestFinish,
     );
     _scheduler = scheduler;
@@ -79,6 +113,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _bgmSpin.dispose();
+    unawaited(_bgm.stop());
     _scheduler?.dispose();
     _session.dispose();
     super.dispose();
@@ -92,10 +128,12 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       case AppLifecycleState.hidden:
         _scheduler?.pause();
         ref.read(soundBankProvider).pauseAll();
+        unawaited(_bgm.pause());
         _session.onInterrupt(InterruptReason.appBackgrounded);
       case AppLifecycleState.resumed:
         _scheduler?.resume();
         ref.read(soundBankProvider).resumeAll();
+        unawaited(_bgm.resume());
         _session.onResume();
       default:
         break;
@@ -109,6 +147,23 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     _session.start();
     // 声音语言：磬一声 = 开始 / 请闭眼。
     ref.read(soundBankProvider).play(SoundCatalog.chimeKey);
+    // 修行 BGM：本局解析好的那首（"无"设置下不启动），放完隔一秒循环。
+    // 只跳过音乐启动，绝不影响开始流程（复审 P1：此前 return 吞掉了
+    // _running 置位，选"无"会卡在开始界面）。
+    final bgmAsset = _ctx?.params['bgmAsset'] as String?;
+    if (bgmAsset != null) {
+      _bgm
+          .start(
+            asset: bgmAsset,
+            volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
+          )
+          .then((_) {
+        if (mounted && _running) {
+          setState(() => _bgmName = _bgm.trackName);
+          _bgmSpin.repeat();
+        }
+      });
+    }
     setState(() => _running = true);
   }
 
@@ -134,71 +189,98 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     _finishing = true;
     setState(() => _running = false);
     _scheduler?.cancelAll();
+    unawaited(_bgm.stop());
+    if (mounted) {
+      setState(() => _bgmName = '');
+      _bgmSpin.stop();
+    }
 
     final sounds = ref.read(soundBankProvider);
     final store = ref.read(storeProvider);
-    final result = await _session.finish(reason);
 
     // 结算收口（单点）：修为 clamp → 成就 → 花瓣 → 写库。
+    // 整段用兜底保护：玩法 finish 抛异常也不能把用户卡死在黑屏
+    // （改进列表反馈的"提交答案后卡死、没法退出"）。
+    PracticeResult result;
+    try {
+      result = await _session.finish(reason);
+    } catch (e) {
+      debugPrint('practice finish failed: $e');
+      result = PracticeResult(
+        effectiveDuration: Duration.zero,
+        quality: 0,
+        merit: 0,
+        completed: false,
+        metrics: const {},
+        note: 'settle_error',
+      );
+    }
+
     final maxMerit = _session.manifest.meritBase * 3;
     final merit = result.merit.clamp(0, maxMerit);
 
     if (result.note == 'sleep_mode') {
       // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
       store.queuePendingMerit(merit);
-      await sounds.stopLoop(SoundCatalog.tideLoopKey);
+      try {
+        await sounds.stopLoop(SoundCatalog.tideLoopKey);
+      } on Exception {
+        // 循环已停则忽略。
+      }
       if (mounted) {
         Navigator.of(context).maybePop();
       }
       return;
     }
 
-    store.addMerit(merit);
-    store.addSession(
-      practiceId: _session.manifest.id,
-      merit: merit,
-      completed: result.completed,
-      durationMs: result.effectiveDuration.inMilliseconds,
-      metrics: result.metrics,
-    );
-    for (final reward in result.extraRewards) {
-      switch (reward.kind) {
-        case RewardKind.petal:
-          // 花瓣不分物种（待对齐清单 #6），每片 +1 总数。
-          store.addPetals(1);
-        case RewardKind.slip:
-          break;
+    try {
+      store.addMerit(merit);
+      store.addSession(
+        practiceId: _session.manifest.id,
+        merit: merit,
+        completed: result.completed,
+        durationMs: result.effectiveDuration.inMilliseconds,
+        metrics: result.metrics,
+      );
+      for (final reward in result.extraRewards) {
+        switch (reward.kind) {
+          case RewardKind.petal:
+            // 花瓣不分物种（待对齐清单 #6），每片 +1 总数。
+            store.addPetals(1);
+          case RewardKind.slip:
+            break;
+        }
       }
-    }
-    final freshIds = store.unlockAchievements(
-      kAchievements
-          .where(
-            (a) => a.test(
-              AchievementEval(
-                store: store,
-                lastResult: result,
-                lastManifest: _session.manifest,
-              ),
-            ),
-          )
-          .map((a) => a.id),
-    );
-    final freshTitles = [
-      for (final id in freshIds)
-        kAchievements.firstWhere((a) => a.id == id).title,
-    ];
+      final freshIds = evaluateAchievements(
+        store,
+        lastResult: result,
+        lastManifest: _session.manifest,
+      );
+      final freshTitles = [
+        for (final id in freshIds)
+          kAchievements.firstWhere((a) => a.id == id).title,
+      ];
 
-    // 声音语言：磬两声 = 结束 / 可以睁眼。
-    await sounds.play(SoundCatalog.chimeDoubleKey);
-    for (final _ in freshTitles) {
-      await sounds.play(SoundCatalog.chimeSoftKey);
-    }
-
-    if (mounted) {
-      setState(() {
-        _result = result;
-        _freshAchievements = freshTitles;
-      });
+      // 声音语言：磬两声 = 结束 / 可以睁眼。
+      await sounds.play(SoundCatalog.chimeDoubleKey);
+      for (final _ in freshTitles) {
+        await sounds.play(SoundCatalog.chimeSoftKey);
+      }
+      if (mounted) {
+        setState(() {
+          _result = result;
+          _freshAchievements = freshTitles;
+        });
+      }
+    } catch (e) {
+      // 入账环节异常：仍要给结算页，绝不能卡死。
+      debugPrint('practice settle failed: $e');
+      if (mounted) {
+        setState(() {
+          _result = result;
+          _freshAchievements = const [];
+        });
+      }
     }
   }
 
@@ -220,14 +302,31 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         ),
       );
     } else if (_finishing) {
+      // 结算中（含助眠淡出）：只给一个安静的加载指示，不给任何可点入口。
       child = const _BlackScaffold(
         child: Center(
           child: CircularProgressIndicator(color: Color(0xFFE8DFC8)),
         ),
       );
     } else if (!_running) {
+      // 首次教程只对有脚本脚目的修行生效（静坐试玩等直接进开始界面）。
+      final tutorial = kPracticeTutorials[manifest.id];
       child = _BlackScaffold(
-        child: _StartOverlay(manifest: manifest, onStart: _begin),
+        child: !_tutorialDone && tutorial != null
+            ? _TutorialOverlay(
+                tutorial: tutorial,
+                sounds: ref.read(soundBankProvider),
+                onDone: () {
+                  ref.read(storeProvider).markTutorialSeen(manifest.id);
+                  setState(() => _tutorialDone = true);
+                },
+              )
+            : _StartOverlay(
+                manifest: manifest,
+                session: _session,
+                onStart: _begin,
+                onExit: () => Navigator.of(context).maybePop(),
+              ),
       );
     } else {
       child = Listener(
@@ -245,7 +344,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       );
     }
 
-    final showEndChip = manifest.allowManualEnd && _running && _result == null;
+    // 所有修行在修行过程界面都有退出入口（改进列表）。
+    final showEndChip = _running && _result == null && !_finishing;
     return PopScope<Object?>(
       // 运行中拦截系统返回：按"用户结束"走正常结算收口，不丢结果。
       canPop: !_running || _finishing,
@@ -274,14 +374,194 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: const Text(
-                      '结束',
+                      '退出',
                       style: TextStyle(color: Color(0x99FFFFFF), fontSize: 13),
                     ),
                   ),
                 ),
               ),
             ),
+          // 修行 BGM 指示：上方小字曲名 + 旋转唱片机（改进列表）。
+          if (_bgmName.isNotEmpty)
+            Positioned(
+              top: 48,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Center(
+                  child: AnimatedBuilder(
+                    animation: _bgmSpin,
+                    builder: (context, _) {
+                      final paused = _bgmSpin.isAnimating ? 1.0 : 0.0;
+                      return Opacity(
+                        opacity: 0.55,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CustomPaint(
+                              size: const Size(14, 14),
+                              painter: _DiscPainter(
+                                angle: _bgmSpin.value * 2 * 3.14159265,
+                                visible: paused,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '♪ $_bgmName',
+                              style: const TextStyle(
+                                color: Color(0x88E8DFC8),
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
         ],
+      ),
+    );
+  }
+}
+
+/// 简化唱片机：圆形"唱片"缓慢旋转（BGM 指示动画）。
+class _DiscPainter extends CustomPainter {
+  _DiscPainter({required this.angle, required this.visible});
+
+  final double angle;
+  final double visible;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height / 2);
+    final r = size.width / 2;
+    canvas.save();
+    canvas.translate(c.dx, c.dy);
+    canvas.rotate(angle);
+    canvas.drawCircle(Offset.zero, r, Paint()..color = const Color(0x66E8DFC8));
+    canvas.drawCircle(Offset.zero, r * 0.35, Paint()..color = const Color(0x33050505));
+    canvas.drawLine(
+      Offset(-r, 0),
+      Offset(r, 0),
+      Paint()
+        ..color = const Color(0x55050505)
+        ..strokeWidth = 1,
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_DiscPainter old) => old.angle != angle;
+}
+
+/// 首次教程浮窗（改进列表）：半透明浮窗逐段显示文案，
+/// 浮窗下方"点击屏幕继续"，最后一段点击后进入开始界面。
+class _TutorialOverlay extends StatefulWidget {
+  const _TutorialOverlay({
+    required this.tutorial,
+    required this.sounds,
+    required this.onDone,
+  });
+
+  final PracticeTutorial? tutorial;
+  final SoundBank sounds;
+  final VoidCallback onDone;
+
+  @override
+  State<_TutorialOverlay> createState() => _TutorialOverlayState();
+}
+
+class _TutorialOverlayState extends State<_TutorialOverlay> {
+  int _page = 0;
+  bool _ambientStarted = false;
+
+  PracticeTutorial? get _tutorial => widget.tutorial;
+
+  @override
+  void initState() {
+    super.initState();
+    _showCurrent();
+  }
+
+  Future<void> _showCurrent() async {
+    final tutorial = _tutorial;
+    if (tutorial == null) return;
+    // 持续环境声（听潮：教程期间持续播放潮水声音）。
+    final loop = tutorial.ambientLoopKey;
+    if (loop != null && !_ambientStarted) {
+      _ambientStarted = true;
+      await widget.sounds.startLoop(loop, gain: 0.18);
+    }
+    final sound = tutorial.pages[_page].soundKey;
+    if (sound != null) {
+      await widget.sounds.play(sound, gain: tutorial.pages[_page].soundGain);
+    }
+  }
+
+  @override
+  void dispose() {
+    final loop = _tutorial?.ambientLoopKey;
+    if (loop != null && _ambientStarted) {
+      unawaited(widget.sounds.stopLoop(loop));
+    }
+    super.dispose();
+  }
+
+  void _advance() {
+    final tutorial = _tutorial;
+    if (tutorial == null || _page >= tutorial.pages.length - 1) {
+      widget.onDone();
+      return;
+    }
+    setState(() => _page++);
+    _showCurrent();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tutorial = _tutorial;
+    final text = tutorial == null
+        ? ''
+        : tutorial.pages[_page].text;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _advance,
+      child: Container(
+        color: const Color(0xAA050505),
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        alignment: Alignment.center,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+              decoration: BoxDecoration(
+                color: const Color(0x66201E1A),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: const Color(0x33E8DFC8)),
+              ),
+              child: Text(
+                text,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Color(0xE6E8DFC8),
+                  fontSize: 17,
+                  height: 1.8,
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              tutorial == null || _page >= tutorial.pages.length - 1
+                  ? '点击屏幕，进入修行'
+                  : '点击屏幕继续 (${_page + 1}/${tutorial.pages.length})',
+              style: const TextStyle(color: Color(0x55E8DFC8), fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -294,19 +574,36 @@ class _BlackScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(color: const Color(0xFF050505), child: child);
+    // ChoiceChip 等 Material 组件要求 Material 祖先；透明 Material 不改变纯黑视觉。
+    return Material(
+      type: MaterialType.transparency,
+      child: ColoredBox(color: const Color(0xFF050505), child: child),
+    );
   }
 }
 
-class _StartOverlay extends StatelessWidget {
-  const _StartOverlay({required this.manifest, required this.onStart});
+class _StartOverlay extends StatefulWidget {
+  const _StartOverlay({
+    required this.manifest,
+    required this.session,
+    required this.onStart,
+    required this.onExit,
+  });
 
   final PracticeManifest manifest;
+  final PracticeSession session;
   final VoidCallback onStart;
+  final VoidCallback onExit;
 
   @override
+  State<_StartOverlay> createState() => _StartOverlayState();
+}
+
+class _StartOverlayState extends State<_StartOverlay> {
+  @override
   Widget build(BuildContext context) {
-    final rules = manifest.rulesText;
+    final choices = widget.session.startChoices;
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
@@ -315,42 +612,65 @@ class _StartOverlay extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Text(
-              manifest.name,
+              widget.manifest.name,
               style: const TextStyle(
                 color: Color(0xFFE8DFC8),
                 fontSize: 26,
                 fontWeight: FontWeight.w600,
+                letterSpacing: 10,
               ),
             ),
-            const SizedBox(height: 8),
-            Text(
-              manifest.subtitle,
-              style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 14),
+            const SizedBox(height: 14),
+            const Text(
+              '请闭上双眼',
+              style: TextStyle(color: Color(0x88E8DFC8), fontSize: 14),
             ),
-            if (rules != null) ...[
+            if (choices.isNotEmpty) ...[
               const SizedBox(height: 28),
-              Text(
-                rules,
-                style: const TextStyle(
-                  color: Color(0xB3E8DFC8),
-                  fontSize: 15,
-                  height: 1.7,
-                ),
-                textAlign: TextAlign.center,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  for (var i = 0; i < choices.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 5),
+                      child: ChoiceChip(
+                        label: Text(choices[i]),
+                        selected: widget.session.startChoice == i,
+                        onSelected: (_) =>
+                            setState(() => widget.session.startChoice = i),
+                        labelStyle: TextStyle(
+                          color: widget.session.startChoice == i
+                              ? AppTheme.bg
+                              : AppTheme.inkDim,
+                          fontSize: 12,
+                        ),
+                        selectedColor: AppTheme.gold,
+                        backgroundColor: const Color(0x14E8DFC8),
+                      ),
+                    ),
+                ],
               ),
             ],
             const SizedBox(height: 44),
             OutlinedButton(
-              onPressed: onStart,
+              onPressed: widget.onStart,
               style: OutlinedButton.styleFrom(
                 foregroundColor: const Color(0xFFE8DFC8),
                 side: const BorderSide(color: Color(0x55E8DFC8)),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 36,
+                  horizontal: 44,
                   vertical: 14,
                 ),
               ),
-              child: const Text('开始（磬响后请闭眼）'),
+              child: const Text('开始'),
+            ),
+            const SizedBox(height: 14),
+            TextButton(
+              onPressed: widget.onExit,
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0x66E8DFC8),
+              ),
+              child: const Text('退出'),
             ),
           ],
         ),

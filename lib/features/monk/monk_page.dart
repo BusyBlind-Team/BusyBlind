@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/audio/sound_catalog.dart';
 import '../../data/app_store.dart';
 import '../../di.dart';
 import '../../domain/merit.dart';
@@ -9,6 +8,7 @@ import '../../theme.dart';
 import '../../widgets/low_poly_button.dart';
 import '../../widgets/monk_figure.dart';
 import 'achievements_page.dart';
+import 'bgm_settings_page.dart';
 import 'friends_page.dart';
 import 'meditation_page.dart';
 import 'sign_page.dart';
@@ -30,6 +30,19 @@ class MonkPage extends ConsumerWidget {
       body: SafeArea(
         child: Stack(
           children: [
+            // 音乐与音效设置入口（首页调整按钮）。
+            Align(
+              alignment: const Alignment(0.94, -0.96),
+              child: IconButton(
+                icon: const Icon(Icons.music_note, color: AppTheme.inkDim),
+                tooltip: '音乐与音效',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const BgmSettingsPage(),
+                  ),
+                ),
+              ),
+            ),
             // 等级称号 + 修为条（立绘上方）。
             Align(
               alignment: Alignment(0, -0.82),
@@ -81,7 +94,6 @@ class MonkPage extends ConsumerWidget {
               child: LowPolyButton(
                 label: '签',
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const SignPage()),
                   );
@@ -94,7 +106,6 @@ class MonkPage extends ConsumerWidget {
                 label: '成',
                 seed: 3,
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const AchievementsPage()),
                   );
@@ -107,7 +118,6 @@ class MonkPage extends ConsumerWidget {
                 label: '禅',
                 seed: 5,
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const MeditationPage()),
                   );
@@ -120,7 +130,6 @@ class MonkPage extends ConsumerWidget {
                 label: '友',
                 seed: 9,
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const FriendsPage()),
                   );

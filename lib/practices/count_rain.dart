@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -52,11 +53,20 @@ class CountRainSession extends PracticeSession {
     iconKey: 'count_rain',
     rulesText: '只有雨，没有钟。雨滴大约三到十秒落下一滴。\n'
         '全程不用动手，只管在心里默数。\n三分钟后雨停，会问你这个数。',
+    introTags: '专注·白噪声',
+    intro: '天大约刚刚放晴。坐在屋檐下，还可以静听雨滴落下的滴答声。'
+        '什么都不要做，在心里默数有多少滴雨滴落下吧。三分钟后，告诉师傅你的答案。',
   );
+
+  late String _ambientKey = SoundCatalog.forestLoopKey;
+  double _ambientVolume = 0.35;
 
   @override
   Future<void> prepare(PracticeContext ctx) async {
     _ctx = ctx;
+    // 环境循环音（默认鸟鸣虫鸣）可被所选背景音乐对应替换（首页"乐"设置）。
+    _ambientKey = ctx.stringParam('ambientKey', SoundCatalog.forestLoopKey);
+    _ambientVolume = ctx.doubleParam('ambientVolume', 0.35);
     _generateRain();
   }
 
@@ -71,12 +81,19 @@ class CountRainSession extends PracticeSession {
     }
   }
 
+  int _dropPulse = 0; // 雨滴视觉脉冲：每落一滴 +1（改进列表：雨滴渐显渐隐动画）
+
   @override
   void start() {
     // 背景白噪声（鸟鸣虫鸣，约 -24dB）。
-    _ctx.sounds.startLoop(SoundCatalog.forestLoopKey, gain: 0.08);
+    _ctx.sounds.startLoop(_ambientKey, gain: 0.25 * _ambientVolume);
     for (final t in _rainTimesUs) {
       _ctx.scheduler.scheduleSound(t, 'rain_drop', gain: 0.9);
+      // 同一刻触发视觉脉冲（雨滴渐显至半透明再渐隐）。
+      _ctx.scheduler.scheduleCallback(t, () {
+        _dropPulse++;
+        notifyVisualChanged();
+      });
     }
     _ctx.scheduler.scheduleCallback(_lengthUs, _enterReportPhase);
   }
@@ -87,7 +104,7 @@ class CountRainSession extends PracticeSession {
     _askingReport = true;
     // 声音语言：磬一声 = 这一局听完了，请睁眼报数。
     _ctx.sounds.play(SoundCatalog.chimeSoftKey, gain: 0.5);
-    _ctx.sounds.stopLoop(SoundCatalog.forestLoopKey);
+    unawaited(_ctx.sounds.stopLoop(_ambientKey));
     // 兜底：报数页若长时间无人确认（用户走开），自动收口不发修为。
     // scheduleCallback 用会话时间轴绝对时刻：听雨 3 分钟 + 报数等待 3 分钟。
     _ctx.scheduler.scheduleCallback(_lengthUs + _askTimeoutUs, () {
@@ -96,9 +113,9 @@ class CountRainSession extends PracticeSession {
     notifyVisualChanged();
   }
 
-  /// 报数页确认回调（UI 层调用）。
+  /// 报数页确认回调（UI 层调用）。防重复提交：只接受第一次。
   void submitReport(int count) {
-    if (_finished || !_askingReport) return;
+    if (_finished || !_askingReport || _reportedCount != null) return;
     _reportedCount = count;
     _ctx.requestFinish(FinishReason.completed);
   }
@@ -121,7 +138,11 @@ class CountRainSession extends PracticeSession {
   Future<PracticeResult> finish(FinishReason r) async {
     if (_finished) return _buildResult(r);
     _finished = true;
-    await _ctx.sounds.stopLoop(SoundCatalog.forestLoopKey);
+    try {
+      await _ctx.sounds.stopLoop(_ambientKey);
+    } on Exception {
+      // 已停止则忽略。
+    }
     return _buildResult(r);
   }
 
@@ -160,14 +181,24 @@ class CountRainSession extends PracticeSession {
     if (_askingReport) {
       return _ReportCountView(onSubmit: submitReport);
     }
-    return PracticeScene(
-      kind: PracticeSceneKind.countRain,
-      title: '数 雨',
-      subtitle: '在心里默数 · 不用动手',
-      active: true,
-      progress: (_ctx.scheduler.nowUs() / _lengthUs).clamp(0.0, 1.0),
-      count: 0,
-      accent: 0,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: PracticeScene(
+            kind: PracticeSceneKind.countRain,
+            title: '数 雨',
+            subtitle: '在心里默数 · 不用动手',
+            active: true,
+            progress: (_ctx.scheduler.nowUs() / _lengthUs).clamp(0.0, 1.0),
+            count: 0,
+            accent: 0,
+          ),
+        ),
+        // 雨滴落下动画：屏幕中间渐显至半透明再渐隐（改进列表）。
+        Positioned.fill(
+          child: IgnorePointer(child: _RainDropFlash(pulse: _dropPulse)),
+        ),
+      ],
     );
   }
 
@@ -177,14 +208,13 @@ class CountRainSession extends PracticeSession {
     final report = m['userReport'] as int?;
     final actual = m['actualRain'] as int? ?? 0;
     final error = m['error'] as int? ?? 0;
-    final excellent = m['excellent'] as bool? ?? false;
     final verdict = !r.completed && report == null
         ? '雨还没听完，先回去了。'
         : error == 0
-        ? '一滴不差——你的心一直在雨里。'
-        : excellent
-        ? '只差 $error 滴，很静了。'
-        : '对答案：数漏的雨，都是走神的一瞬。';
+        ? '分毫不差。'
+        : error <= 3
+        ? '失之毫厘。'
+        : '心猿意马。';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -201,12 +231,21 @@ class CountRainSession extends PracticeSession {
         ] else ...[
           _Row(label: '实际落下', value: '$actual 滴'),
         ],
+        if (report != null && error > 0) ...[
+          const SizedBox(height: 10),
+          Text(
+            '真正落下了 $actual 滴雨。',
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 13),
+          ),
+        ],
       ],
     );
   }
 }
 
 /// 报数页：听完之后才出现的"你数到了几滴？"询问（待对齐清单 #8）。
+/// 加减支持长按连发（改进列表）：点按 ±1，按住不放快速连加/连减。
 class _ReportCountView extends StatefulWidget {
   const _ReportCountView({required this.onSubmit});
 
@@ -218,6 +257,13 @@ class _ReportCountView extends StatefulWidget {
 
 class _ReportCountViewState extends State<_ReportCountView> {
   int _count = 0;
+  bool _submitted = false;
+
+  void _submit() {
+    if (_submitted) return;
+    setState(() => _submitted = true);
+    widget.onSubmit(_count);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,9 +291,9 @@ class _ReportCountViewState extends State<_ReportCountView> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _StepButton(
+              _RepeatButton(
                 icon: '−',
-                onTap: () => setState(() => _count = max(0, _count - 1)),
+                onTick: () => setState(() => _count = max(0, _count - 1)),
               ),
               GestureDetector(
                 onLongPress: () => setState(() => _count = 0),
@@ -260,9 +306,9 @@ class _ReportCountViewState extends State<_ReportCountView> {
                   ),
                 ),
               ),
-              _StepButton(
+              _RepeatButton(
                 icon: '+',
-                onTap: () => setState(() => _count = min(999, _count + 1)),
+                onTick: () => setState(() => _count = min(999, _count + 1)),
               ),
             ],
           ),
@@ -274,13 +320,13 @@ class _ReportCountViewState extends State<_ReportCountView> {
           ),
           const SizedBox(height: 32),
           OutlinedButton(
-            onPressed: () => widget.onSubmit(_count),
+            onPressed: _submitted ? null : _submit,
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFFE8DFC8),
               side: const BorderSide(color: Color(0x55E8DFC8)),
               padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 14),
             ),
-            child: const Text('就这个数'),
+            child: Text(_submitted ? '已报数' : '就这个数'),
           ),
         ],
       ),
@@ -288,24 +334,126 @@ class _ReportCountViewState extends State<_ReportCountView> {
   }
 }
 
-class _StepButton extends StatelessWidget {
-  const _StepButton({required this.icon, required this.onTap});
+/// 点按一次 ±1；按住不放先延迟 400ms，然后每 60ms 连发（长按连发）。
+class _RepeatButton extends StatefulWidget {
+  const _RepeatButton({required this.icon, required this.onTick});
 
   final String icon;
-  final VoidCallback onTap;
+  final VoidCallback onTick;
+
+  @override
+  State<_RepeatButton> createState() => _RepeatButtonState();
+}
+
+class _RepeatButtonState extends State<_RepeatButton> {
+  Timer? _delay;
+  Timer? _repeat;
+
+  void _start() {
+    widget.onTick();
+    _delay = Timer(const Duration(milliseconds: 400), () {
+      _repeat = Timer.periodic(const Duration(milliseconds: 60), (_) {
+        widget.onTick();
+      });
+    });
+  }
+
+  void _stop() {
+    _delay?.cancel();
+    _repeat?.cancel();
+    _delay = null;
+    _repeat = null;
+  }
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton(
-      onPressed: onTap,
-      style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFFE8DFC8),
-        side: const BorderSide(color: Color(0x33E8DFC8)),
-        minimumSize: const Size(56, 56),
-        padding: EdgeInsets.zero,
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTapDown: (_) => _start(),
+      onTapUp: (_) => _stop(),
+      onTapCancel: _stop,
+      child: Container(
+        width: 56,
+        height: 56,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0x33E8DFC8)),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Text(
+          widget.icon,
+          style: const TextStyle(fontSize: 24, color: Color(0xFFE8DFC8)),
+        ),
       ),
-      child: Text(icon, style: const TextStyle(fontSize: 24)),
     );
+  }
+
+  @override
+  void dispose() {
+    _stop();
+    super.dispose();
+  }
+}
+
+/// 雨滴落下动画：每次脉冲触发"渐显至半透明 → 渐隐"。
+class _RainDropFlash extends StatefulWidget {
+  const _RainDropFlash({required this.pulse});
+
+  final int pulse;
+
+  @override
+  State<_RainDropFlash> createState() => _RainDropFlashState();
+}
+
+class _RainDropFlashState extends State<_RainDropFlash>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1500),
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _RainDropFlash old) {
+    super.didUpdateWidget(old);
+    if (widget.pulse != old.pulse && !_controller.isAnimating) {
+      _controller.forward(from: 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        if (!_controller.isAnimating) return const SizedBox.shrink();
+        final t = _controller.value;
+        // 前 40% 渐显到 0.5 透明度，之后渐隐。
+        final opacity = t < 0.4 ? (t / 0.4) * 0.5 : 0.5 * (1 - (t - 0.4) / 0.6);
+        return Center(
+          child: Opacity(
+            opacity: opacity,
+            child: Image.asset(
+              'assets/images/雨滴.png',
+              width: 64,
+              height: 64,
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 }
 

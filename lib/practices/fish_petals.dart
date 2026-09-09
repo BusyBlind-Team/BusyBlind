@@ -49,9 +49,9 @@ class FishPetalsSession extends PracticeSession {
   int? _lastInputUs;
   Timer? _pollTimer;
 
-  // 浮标位置（宿主坐标系的逻辑坐标；null = 未投）。
-  Offset? _buoyPos;
-  int _catchPulse = 0; // 成功收瓣的视觉脉冲计数
+  // 视觉层事件脉冲：上钩一次 +1 / 收瓣成功一次 +1（俯视池塘层据此绑定）。
+  int _hookPulse = 0;
+  int _catchPulse = 0;
 
   // 统计。
   int _petalsCaught = 0;
@@ -77,6 +77,8 @@ class FishPetalsSession extends PracticeSession {
     rulesText:
         '长按屏幕，把浮标落在手指处，闭眼等。\n刚投下会惊散花瓣——前两秒不会有人上钩；\n甩得越久，花瓣越愿意靠近。\n'
         '"叮"是花瓣碰竿，1.5 秒内松手收杆；"咚"只是杂物，收了也是空竿。',
+    introTags: '趣味·耐心·收集',
+    intro: '甩杆，然后静候。频繁地甩杆会惊动花瓣，所以请耐心等待，它们会上钩的。不要心急，否则只会钓起一堆杂物。',
   );
 
   /// 触竿概率曲线：随本次甩杆时长上升（10s≈20% → 60s≈60%，每秒概率）。
@@ -149,6 +151,7 @@ class FishPetalsSession extends PracticeSession {
   void _hook(int now) {
     _hookAtUs = now;
     _hookIsPetal = _rng.nextDouble() < _petalChance;
+    _hookPulse++;
     _ctx.sounds.play(_hookIsPetal ? SoundCatalog.fishDingKey : SoundCatalog.fishDongKey, gain: 0.9);
     _ctx.recorder.log('hook', {
       'petal': _hookIsPetal,
@@ -190,23 +193,16 @@ class FishPetalsSession extends PracticeSession {
       case PointerPhase.down:
         if (_state == _RodState.idle ||
             (_state == _RodState.resting && now >= _restEndUs)) {
-          // 甩杆：浮标落在手指处（待对齐清单 #7）。
+          // 甩杆：浮漂落在屏幕正中（改进列表 #17，俯视视觉）。
           _state = _RodState.casting;
           _castStartUs = now;
           _casts++;
-          _buoyPos = e.position;
           _ctx.sounds.play(SoundCatalog.swishKey, gain: 0.6);
           _ctx.recorder.log('cast', {'at': now});
           notifyVisualChanged();
         }
       case PointerPhase.move:
-        // 按住拖动 = 移动浮标；花瓣散开交给视觉层响应位置变化。
-        if (_state == _RodState.casting || _state == _RodState.hooked) {
-          if (e.position != null && e.position != _buoyPos) {
-            _buoyPos = e.position;
-            notifyVisualChanged();
-          }
-        }
+        break; // 浮漂固定在屏幕正中，拖动不移动浮漂。
       case PointerPhase.up:
       case PointerPhase.cancel:
         if (_state == _RodState.hooked) {
@@ -228,8 +224,7 @@ class FishPetalsSession extends PracticeSession {
           // 没等到触竿就收手：空竿。
           _restFrom(now);
         }
-        // 收杆 = 浮标离水。
-        _buoyPos = null;
+        // 收杆 = 浮漂离水。
         notifyVisualChanged();
     }
   }
@@ -284,7 +279,7 @@ class FishPetalsSession extends PracticeSession {
   @override
   Widget buildVisual(BuildContext c) {
     final subtitle = switch (_state) {
-      _RodState.idle => '长按投下浮标 · 闭眼等候',
+      _RodState.idle => '长按抛竿 · 闭眼等候',
       _RodState.casting => '水面很静 · 再等一等',
       _RodState.hooked => _hookIsPetal ? '叮 · 松手收花' : '咚 · 此竿为空',
       _RodState.resting => '收心片刻 · 等水面复静',
@@ -303,13 +298,19 @@ class FishPetalsSession extends PracticeSession {
                 : 0,
           ),
         ),
-        // 花瓣聚散氛围层（待对齐清单 #7）：常驻以保留粒子状态。
+        // 俯视池塘层（改进列表 #17）：花瓣/杂物漂流、浮漂落正中惊散、
+        // 随甩杆时长缓慢聚拢、上钩绑定与沉底刷新。常驻以保留状态。
         Positioned.fill(
           child: IgnorePointer(
-            child: _BuoyPetalLayer(
-              buoy: _buoyPos,
+            child: _PondLayer(
               showBuoy: _state == _RodState.casting || _state == _RodState.hooked,
+              hookPulse: _hookPulse,
+              hookIsPetal: _hookIsPetal,
               catchPulse: _catchPulse,
+              holdSeconds: () {
+                if (_state != _RodState.casting) return 0.0;
+                return (_ctx.scheduler.nowUs() - _castStartUs) / 1e6;
+              },
             ),
           ),
         ),
@@ -408,188 +409,312 @@ class PetalBadge extends StatelessWidget {
   }
 }
 
-/// 浮标 + 花瓣聚散氛围层（纯视觉，不参与判定）。
+
+/// 俯视池塘层（纯视觉，不参与叮/咚判定）——改进列表 #17。
 ///
-/// 行为（待对齐清单 #7）：
-/// - 浮标落下：在落点播放"略微放大 + 涟漪"动画；附近花瓣按距离远近
-///   不同程度散开。
-/// - 之后花瓣慢慢、带随机扰动地向浮标靠近，近到一定程度便停在浮标边。
-/// - 浮标移动（按住拖动）：对附近花瓣再施加一次散射。
-class _BuoyPetalLayer extends StatefulWidget {
-  const _BuoyPetalLayer({
-    required this.buoy,
-    required this.showBuoy,
-    required this.catchPulse,
-  });
+/// - 未甩杆：只有缓慢漂流的花瓣与杂物（同屏上限 2 瓣 + 2 杂）。
+/// - 长按甩杆：浮漂在屏幕正中落下（仅仅是浮漂），点起几圈逐渐虚化的
+///   涟漪；浮漂落下时击散附近所有东西。
+/// - 之后随甩杆时间延长，东西在一定距离随机游走，并逐渐有靠近浮漂的
+///   趋势；每样东西速度不同，避免一起抵达。
+/// - 一个东西上钩（叮/咚脉冲）：其他东西缓慢远离浮漂、在附近游走；
+///   上钩的东西 3 秒内未钓起，沉下水底消失。
+/// - 有东西消失后，等 3–8 秒在屏幕边缘刷新一个（不超过上限）。
+class _PondItem {
+  _PondItem({required this.isPetal, required this.pos})
+    : phase = _pondRng.nextDouble() * 2 * pi,
+      speed = 0.55 + _pondRng.nextDouble() * 0.8;
 
-  final Offset? buoy;
-  final bool showBuoy;
-  final int catchPulse;
-
-  @override
-  State<_BuoyPetalLayer> createState() => _BuoyPetalLayerState();
+  final bool isPetal;
+  Offset pos;
+  Offset vel = Offset.zero;
+  double phase;
+  double speed;
+  bool hooked = false;
+  bool leaving = false; // 被钓起：向浮漂收拢消失
+  double leaveT = 0;
+  bool sinking = false; // 未钓起：沉下水底
+  double sinkT = 0;
 }
 
-class _BuoyPetalLayerState extends State<_BuoyPetalLayer>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _ticker;
-  final List<_FloatingPetal> _petals = [];
-  final List<_Ripple> _ripples = [];
-  Offset? _lastBuoy;
-  double _dropAge = 999; // 距浮标落水的秒数（入场放大用）
-  bool _reduceMotion = false;
-  int _seenCatchPulse = 0;
-  final Random _rng = Random(11);
+final Random _pondRng = Random(23);
 
-  static const double _scatterRadius = 130; // 惊散范围（逻辑像素）
-  static const double _settleRadius = 22; // 靠近到该距离即停在浮标边
+class _PondLayer extends StatefulWidget {
+  const _PondLayer({
+    required this.showBuoy,
+    required this.hookPulse,
+    required this.hookIsPetal,
+    required this.catchPulse,
+    required this.holdSeconds,
+  });
+
+  final bool showBuoy;
+  final int hookPulse;
+  final bool hookIsPetal;
+  final int catchPulse;
+  final double Function() holdSeconds;
+
+  @override
+  State<_PondLayer> createState() => _PondLayerState();
+}
+
+class _PondLayerState extends State<_PondLayer>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _frame;
+  final List<_PondItem> _items = [];
+  final List<({Offset pos, double age})> _ripples = [];
+  final List<double> _spawnTimers = [];
+  Offset? _center;
+  Size _size = Size.zero;
+
+  bool _buoyWasShown = false;
+  int _hookSeen = 0;
+  int _catchSeen = 0;
+  _PondItem? _hooked;
+  double _hookedFor = 0;
+  bool _reduceMotion = false;
+
+  static const int _maxPetals = 2;
+  static const int _maxClutter = 2;
+  static const double _scatterRadius = 180;
 
   @override
   void initState() {
     super.initState();
-    _ticker = AnimationController(
+    _frame = AnimationController(
       vsync: this,
       duration: const Duration(days: 365),
     )..repeat();
   }
 
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
+  void _ensureSeeded() {
     final media = MediaQuery.maybeOf(context);
     _reduceMotion =
-        (media?.disableAnimations ?? false) || (media?.accessibleNavigation ?? false);
-    if (_petals.isEmpty && size().width > 0) _seedPetals();
+        (media?.disableAnimations ?? false) ||
+        (media?.accessibleNavigation ?? false);
+    final s = media?.size ?? Size.zero;
+    if (s == Size.zero || s == _size && _items.isNotEmpty) return;
+    _size = s;
+    _center ??= Offset(s.width / 2, s.height / 2);
+    if (_items.isNotEmpty) return;
+    for (var i = 0; i < _maxPetals; i++) {
+      _items.add(_PondItem(isPetal: true, pos: _randomPoint(s)));
+    }
+    for (var i = 0; i < _maxClutter; i++) {
+      _items.add(_PondItem(isPetal: false, pos: _randomPoint(s)));
+    }
   }
 
-  Size size() => MediaQuery.maybeOf(context)?.size ?? Size.zero;
+  Offset _randomPoint(Size s) => Offset(
+    _pondRng.nextDouble() * (s.width - 80) + 40,
+    _pondRng.nextDouble() * (s.height - 160) + 80,
+  );
 
-  void _seedPetals() {
-    final s = size();
-    for (var i = 0; i < 12; i++) {
-      _petals.add(
-        _FloatingPetal(
-          pos: Offset(
-            _rng.nextDouble() * s.width,
-            _rng.nextDouble() * s.height * 0.7 + s.height * 0.15,
-          ),
-          phase: _rng.nextDouble() * 2 * pi,
-          tint: kPetalTints[_rng.nextInt(kPetalTints.length)],
-        ),
-      );
-    }
+  int get _petalCount =>
+      _items.where((i) => i.isPetal && !i.leaving && !i.sinking).length;
+  int get _clutterCount =>
+      _items.where((i) => !i.isPetal && !i.leaving && !i.sinking).length;
+
+  void _scheduleRespawn() => _spawnTimers.add(3 + _pondRng.nextDouble() * 5);
+
+  void _spawnAtEdge() {
+    final isPetal = _petalCount <= _clutterCount;
+    if (isPetal && _petalCount >= _maxPetals) return;
+    if (!isPetal && _clutterCount >= _maxClutter) return;
+    final s = _size;
+    final side = _pondRng.nextInt(4);
+    final t = _pondRng.nextDouble();
+    final pos = switch (side) {
+      0 => Offset(t * s.width, 70),
+      1 => Offset(t * s.width, s.height - 60),
+      2 => Offset(36, t * s.height),
+      _ => Offset(s.width - 36, t * s.height),
+    };
+    _items.add(_PondItem(isPetal: isPetal, pos: pos));
   }
 
   void _scatterFrom(Offset center, double strength) {
-    for (final p in _petals) {
-      final d = p.pos - center;
+    for (final item in _items) {
+      if (item.hooked || item.sinking || item.leaving) continue;
+      final d = item.pos - center;
       final dist = d.distance;
       if (dist < _scatterRadius && dist > 0.01) {
         final falloff = 1 - dist / _scatterRadius;
-        p.vel += d / dist * falloff * 260 * strength;
-        p.settled = false;
+        item.vel += d / dist * falloff * 300 * strength;
       }
-    }
-  }
-
-  @override
-  void didUpdateWidget(covariant _BuoyPetalLayer old) {
-    super.didUpdateWidget(old);
-    final buoy = widget.buoy;
-    if (buoy != null) {
-      final prev = _lastBuoy;
-      if (prev == null) {
-        // 浮标落水：涟漪 + 惊散。
-        _ripples.add(_Ripple(pos: buoy, age: 0, big: true));
-        _scatterFrom(buoy, 1.0);
-        _dropAge = 0;
-      } else if ((buoy - prev).distance > 6) {
-        // 移动浮标：花瓣散开（幅度随移动幅度）。
-        _scatterFrom(buoy, ((buoy - prev).distance / 60).clamp(0.4, 1.0));
-      }
-      _lastBuoy = buoy;
-    } else {
-      _lastBuoy = null;
-    }
-    if (widget.catchPulse > _seenCatchPulse && _lastBuoy != null) {
-      _seenCatchPulse = widget.catchPulse;
-      _ripples.add(_Ripple(pos: _lastBuoy!, age: 0, big: false, gold: true));
     }
   }
 
   void _step(double dt) {
-    final s = size();
-    if (s == Size.zero) return;
-    _dropAge += dt;
-    final buoy = widget.showBuoy ? widget.buoy : null;
-    for (final p in _petals) {
-      if (buoy != null) {
-        final toBuoy = buoy - p.pos;
-        final dist = toBuoy.distance;
-        if (p.settled && dist < _settleRadius * 1.6) {
-          // 已停在浮标边，轻轻打转。
-          p.phase += dt * 2;
-          p.pos = buoy - toBuoy / max(dist, 0.01) * _settleRadius;
-          p.vel *= 0.9;
+    if (_size == Size.zero) return;
+    final center = _center!;
+    final buoyShown = widget.showBuoy;
+
+    // 浮漂落水：涟漪 + 击散附近所有东西。
+    if (buoyShown && !_buoyWasShown) {
+      for (var i = 0; i < 3; i++) {
+        _ripples.add((pos: center, age: -i * 0.18));
+      }
+      _scatterFrom(center, 1.0);
+      _hooked = null;
+    }
+    _buoyWasShown = buoyShown;
+
+    // 上钩脉冲：把最靠近浮漂的同类型东西绑为上钩者；其余缓慢远离。
+    if (widget.hookPulse != _hookSeen) {
+      _hookSeen = widget.hookPulse;
+      _PondItem? nearest;
+      var best = double.infinity;
+      for (final item in _items) {
+        if (item.isPetal != widget.hookIsPetal ||
+            item.sinking ||
+            item.leaving) {
           continue;
         }
-        if (dist > _settleRadius) {
-          // 慢慢随机靠近：朝向浮标 + 垂直方向的游移。
-          final dir = toBuoy / max(dist, 0.01);
-          final perp = Offset(-dir.dy, dir.dx);
-          final wander = sin(p.phase + dist * 0.05) * 0.35;
-          final pull = (dist > 260 ? 26.0 : 14.0);
-          p.vel += dir * pull * dt + perp * wander * pull * dt;
-        } else {
-          p.settled = true;
+        final d = (item.pos - center).distance;
+        if (d < best) {
+          best = d;
+          nearest = item;
         }
-      } else {
-        // 没有浮标：随波逐流。
-        p.phase += dt * 0.6;
-        p.vel += Offset(sin(p.phase) * 4 * dt, cos(p.phase * 0.8) * 3 * dt);
       }
-      p.vel *= pow(0.55, dt).toDouble(); // 阻尼
-      p.pos += p.vel * dt;
-      // 留在水面内。
-      p.pos = Offset(
-        p.pos.dx.clamp(8, s.width - 8),
-        p.pos.dy.clamp(s.height * 0.1, s.height - 8),
+      if (nearest != null) {
+        _hooked = nearest..hooked = true;
+        _hookedFor = 0;
+        for (final item in _items) {
+          if (item == nearest || item.sinking || item.leaving) continue;
+          final d = item.pos - center;
+          final dist = d.distance;
+          if (dist > 0.01) item.vel += d / dist * 22;
+        }
+      }
+    }
+
+    // 收瓣脉冲：上钩者被钓起，向浮漂收拢消失。
+    if (widget.catchPulse != _catchSeen) {
+      _catchSeen = widget.catchPulse;
+      if (_hooked != null && !_hooked!.sinking) {
+        _hooked!
+          ..hooked = false
+          ..leaving = true;
+        _scheduleRespawn();
+      }
+      _hooked = null;
+    }
+
+    // 上钩 3 秒未钓起：沉底消失。
+    if (_hooked != null) {
+      _hookedFor += dt;
+      if (_hookedFor >= 3) {
+        _hooked!
+          ..hooked = false
+          ..sinking = true;
+        _scheduleRespawn();
+        _hooked = null;
+      }
+    }
+
+    // 刷新计时。
+    for (var i = 0; i < _spawnTimers.length; i++) {
+      _spawnTimers[i] -= dt;
+    }
+    for (final due in _spawnTimers.where((t) => t <= 0).toList()) {
+      _spawnTimers.remove(due);
+      _spawnAtEdge();
+    }
+
+    // 涟漪老化。
+    for (var i = 0; i < _ripples.length; i++) {
+      _ripples[i] = (pos: _ripples[i].pos, age: _ripples[i].age + dt);
+    }
+    _ripples.removeWhere((r) => r.age > 1.3);
+
+    // 东西运动。
+    final hold = widget.holdSeconds().clamp(0.0, 90.0);
+    final pull = 16.0 * (hold / 45).clamp(0.05, 1.0); // 聚拢趋势随甩杆时长上升
+    for (final item in _items) {
+      if (item.sinking) {
+        item.sinkT += dt / 1.1;
+        item.pos += Offset(0, 14 * dt);
+        continue;
+      }
+      if (item.leaving) {
+        item.leaveT += dt / 0.5;
+        item.pos += (center - item.pos) * (dt * 6).clamp(0.0, 1.0);
+        continue;
+      }
+      if (item.hooked) {
+        // 上钩者停在浮漂边轻微打转。
+        item.phase += dt * 3;
+        final d = item.pos - center;
+        final dist = d.distance;
+        if (dist > 26) {
+          item.pos += -d / dist * 30 * dt;
+        } else {
+          item.pos += Offset(cos(item.phase) * 3 * dt, sin(item.phase) * 3 * dt);
+        }
+        item.vel *= 0.9;
+        continue;
+      }
+
+      item.phase += dt * 0.5;
+      // 随机游走。
+      item.vel += Offset(
+        cos(item.phase * 1.7) * 9 * dt,
+        sin(item.phase * 1.3) * 9 * dt,
+      );
+      if (buoyShown) {
+        final toBuoy = center - item.pos;
+        final dist = toBuoy.distance;
+        final dir = dist > 0.01 ? toBuoy / dist : Offset.zero;
+        if (_hooked != null && item != _hooked) {
+          // 有东西上钩：其他东西很缓慢地远离浮漂、在附近游走。
+          item.vel += -dir * 6 * dt;
+        } else if (dist > 60 && dist < 320) {
+          // 逐渐靠近浮漂的趋势（各自速度不同，避免一起抵达）。
+          item.vel += dir * pull * item.speed * dt;
+        }
+      }
+      item.vel *= pow(0.5, dt).toDouble();
+      item.pos += item.vel * dt;
+      item.pos = Offset(
+        item.pos.dx.clamp(16, _size.width - 16),
+        item.pos.dy.clamp(50, _size.height - 40),
       );
     }
-    for (final r in _ripples) {
-      r.age += dt;
-    }
-    _ripples.removeWhere((r) => r.age > (r.big ? 1.1 : 0.8));
+    _items.removeWhere((item) {
+      final gone =
+          (item.sinking && item.sinkT >= 1) ||
+          (item.leaving && item.leaveT >= 1);
+      return gone;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_petals.isEmpty) _seedPetals();
+    _ensureSeeded();
+    if (_items.isEmpty && _size != Size.zero) {
+      _ensureSeeded();
+    }
     if (_reduceMotion) {
       return CustomPaint(
-        painter: _BuoyPetalPainter(
-          petals: _petals,
+        painter: _PondPainter(
+          items: _items,
           ripples: const [],
-          buoy: widget.showBuoy ? widget.buoy : null,
-          buoyScale: 1,
+          showBuoy: widget.showBuoy,
+          center: _center ?? Offset.zero,
         ),
       );
     }
     return AnimatedBuilder(
-      animation: _ticker,
+      animation: _frame,
       builder: (context, _) {
         _step(1 / 60);
-        final buoy = widget.showBuoy ? widget.buoy : null;
-        // 落水后 0.45 秒内做"略微放大"的入场。
-        final scale = _dropAge < 0.45
-            ? 0.6 + 0.4 * Curves.easeOutBack.transform(_dropAge / 0.45)
-            : 1.0;
         return CustomPaint(
-          painter: _BuoyPetalPainter(
-            petals: _petals,
+          painter: _PondPainter(
+            items: _items,
             ripples: _ripples,
-            buoy: buoy,
-            buoyScale: scale,
+            showBuoy: widget.showBuoy,
+            center: _center ?? Offset.zero,
           ),
         );
       },
@@ -598,79 +723,90 @@ class _BuoyPetalLayerState extends State<_BuoyPetalLayer>
 
   @override
   void dispose() {
-    _ticker.dispose();
+    _frame.dispose();
     super.dispose();
   }
 }
 
-class _FloatingPetal {
-  _FloatingPetal({required this.pos, required this.phase, required this.tint});
-
-  Offset pos;
-  Offset vel = Offset.zero;
-  double phase;
-  Color tint;
-  bool settled = false;
-}
-
-class _Ripple {
-  _Ripple({required this.pos, required this.age, required this.big, this.gold = false});
-
-  Offset pos;
-  double age;
-  bool big;
-  bool gold;
-}
-
-const List<Color> kPetalTints = [
-  Color(0xCCF2C9CE),
-  Color(0xCCF5D9A8),
-  Color(0xCCD9E4C9),
-  Color(0xCCE8D0E8),
-];
-
-class _BuoyPetalPainter extends CustomPainter {
-  _BuoyPetalPainter({
-    required this.petals,
+class _PondPainter extends CustomPainter {
+  _PondPainter({
+    required this.items,
     required this.ripples,
-    required this.buoy,
-    required this.buoyScale,
+    required this.showBuoy,
+    required this.center,
   });
 
-  final List<_FloatingPetal> petals;
-  final List<_Ripple> ripples;
-  final Offset? buoy;
-  final double buoyScale;
+  final List<_PondItem> items;
+  final List<({Offset pos, double age})> ripples;
+  final bool showBuoy;
+  final Offset center;
 
   @override
   void paint(Canvas canvas, Size size) {
-    // 花瓣。
-    for (final p in petals) {
-      canvas.drawCircle(p.pos, 4.5, Paint()..color = p.tint);
+    // 花瓣 / 杂物（俯视）。
+    for (final item in items) {
+      final fade = item.sinking ? (1 - item.sinkT).clamp(0.0, 1.0) : 1.0;
+      final leaveFade = item.leaving
+          ? (1 - item.leaveT).clamp(0.0, 1.0)
+          : 1.0;
+      final alpha = (fade * leaveFade).clamp(0.0, 1.0);
+      if (item.isPetal) {
+        final paint = Paint()
+          ..color = const Color(0xCCF2C9CE).withValues(alpha: 0.8 * alpha);
+        canvas.drawCircle(item.pos, 6, paint);
+        canvas.drawCircle(
+          item.pos,
+          2.4,
+          Paint()..color = const Color(0x55B08A8E).withValues(alpha: alpha),
+        );
+      } else {
+        // 杂物：小枯枝。
+        final twig = Paint()
+          ..color = const Color(0x99635540).withValues(alpha: alpha)
+          ..strokeWidth = 3
+          ..strokeCap = StrokeCap.round;
+        canvas.drawLine(
+          item.pos - const Offset(6, -4),
+          item.pos + const Offset(7, 5),
+          twig,
+        );
+      }
     }
-    // 涟漪。
+
+    // 涟漪：几圈逐渐虚化。
     for (final r in ripples) {
-      final maxR = r.big ? 54.0 : 34.0;
-      final t = (r.age / (r.big ? 1.1 : 0.8)).clamp(0.0, 1.0);
+      if (r.age < 0) continue;
+      final t = (r.age / 1.2).clamp(0.0, 1.0);
       final paint = Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1.6 * (1 - t)
-        ..color = (r.gold ? const Color(0x88D8B36A) : const Color(0x55E8DFC8))
-            .withValues(alpha: (1 - t) * 0.8);
-      canvas.drawCircle(r.pos, 6 + maxR * t, paint);
+        ..color = Color.lerp(
+          const Color(0x77E8DFC8),
+          const Color(0x00E8DFC8),
+          t,
+        )!;
+      canvas.drawCircle(r.pos, 8 + 46 * t, paint);
     }
-    // 浮标。
-    final b = buoy;
-    if (b != null) {
-      canvas.drawCircle(b, 9 * buoyScale, Paint()..color = const Color(0xFFB0473E));
+
+    // 浮漂（屏幕正中）。
+    if (showBuoy) {
+      canvas.drawCircle(center, 10, Paint()..color = const Color(0xFFB0473E));
       canvas.drawCircle(
-        b,
-        9 * buoyScale * 0.55,
+        center,
+        5.5,
         Paint()..color = const Color(0xFFEFE3C2),
+      );
+      canvas.drawCircle(
+        center,
+        13,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0x33E8DFC8),
       );
     }
   }
 
   @override
-  bool shouldRepaint(covariant _BuoyPetalPainter old) => true;
+  bool shouldRepaint(covariant _PondPainter old) => true;
 }

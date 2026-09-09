@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../core/llm/llm_client.dart';
 import '../domain/petals.dart';
 
 /// 本地优先的数据层（设计方案原则 4）。
@@ -90,6 +91,17 @@ class AppStore extends ChangeNotifier {
       }
       data['petals'] = total;
     }
+    // Key 分服务商保存（PR #14 复审 P1-2）：把升级前已填的 Key
+    // 按其 baseUrl 播种进 llmKeys，避免老用户升级后丢 Key。
+    final llm = data['llm'];
+    if (llm is Map) {
+      final baseUrl = llm['baseUrl'] as String? ?? '';
+      final apiKey = llm['apiKey'] as String? ?? '';
+      final keys = data['llmKeys'];
+      if (keys is Map && baseUrl.isNotEmpty && apiKey.isNotEmpty) {
+        keys[baseUrl] ??= apiKey;
+      }
+    }
     return data;
   }
 
@@ -107,6 +119,21 @@ class AppStore extends ChangeNotifier {
     'pendingMerit': data['pendingMerit'] ?? <Object?>[],
     'sessions': data['sessions'] ?? <Object?>[],
     'lUserUs': data['lUserUs'] ?? 0,
+    // LLM 连接配置（默认智谱 GLM 预设、Key 留空）与已生成的修炼报告。
+    'llm': data['llm'] ??
+        {
+          'baseUrl': LlmPresets.glm.baseUrl,
+          'model': LlmPresets.glm.model,
+          'apiKey': '',
+        },
+    'reports': data['reports'] ?? <Object?>[],
+    // 登录天数（成就：刹那/禅七/……）与各修行首次教程已读标记。
+    'login': data['login'] ?? {'count': 0, 'lastDate': ''},
+    'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
+    // 背景音乐设置：track = -2 无 / -1 随机 / 0..4 固定曲目；volume = 0..1。
+    'bgm': data['bgm'] ?? {'track': -1, 'volume': 0.35},
+    // 各服务商（按 baseUrl）分别保存的 API Key，避免切换服务商串密钥。
+    'llmKeys': data['llmKeys'] ?? <String, String>{},
   };
 
   // ---- 首启教程 ----
@@ -287,13 +314,14 @@ class AppStore extends ChangeNotifier {
     required bool completed,
     required int durationMs,
     Map<String, Object?> metrics = const {},
+    @visibleForTesting String? date,
   }) {
     (_data['sessions']! as List).add({
       'practiceId': practiceId,
       'merit': merit,
       'completed': completed,
       'durationMs': durationMs,
-      'date': _today,
+      'date': date ?? _today,
       'metrics': metrics,
     });
     final list = _data['sessions']! as List;
@@ -304,11 +332,100 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- LLM 配置与修炼报告 ----
+
+  LlmConfig get llmConfig {
+    final m = _data['llm']! as Map;
+    return LlmConfig(
+      baseUrl: m['baseUrl'] as String? ?? '',
+      model: m['model'] as String? ?? '',
+      apiKey: m['apiKey'] as String? ?? '',
+    );
+  }
+
+  bool get llmReady => llmConfig.apiKey.trim().isNotEmpty;
+
+  /// 某服务商（baseUrl）此前保存过的 Key；没有则 null。
+  String? keyForBaseUrl(String baseUrl) =>
+      (_data['llmKeys']! as Map)[baseUrl] as String?;
+
+  void saveLlmConfig(LlmConfig config) {
+    _data['llm'] = {
+      'baseUrl': config.baseUrl,
+      'model': config.model,
+      'apiKey': config.apiKey,
+    };
+    // 按 baseUrl 记录 Key：切换服务商时各用各的，互不串用（复审 P1-2）。
+    (_data['llmKeys']! as Map)[config.baseUrl] = config.apiKey;
+    _save();
+    notifyListeners();
+  }
+
+  List<Map<String, Object?>> get reports =>
+      (_data['reports']! as List).cast<Map<String, Object?>>();
+
+  /// 收入一份报告（倒序插入），只保留最近 [kMaxReports] 份。
+  void addReport(Map<String, Object?> report) {
+    (_data['reports']! as List).insert(0, report);
+    final list = _data['reports']! as List;
+    if (list.length > kMaxReports) {
+      list.removeRange(kMaxReports, list.length);
+    }
+    _save();
+    notifyListeners();
+  }
+
+  static const int kMaxReports = 10;
+
   // ---- 校准 ----
 
   int get lUserUs => _data['lUserUs']! as int;
   set lUserUs(int us) {
     _data['lUserUs'] = us;
+    _save();
+    notifyListeners();
+  }
+
+  // ---- 登录天数（成就"刹那/禅七/……"口径：累计到访的自然日数）----
+
+  int get loginDays => (_data['login']! as Map)['count']! as int;
+
+  /// 每次启动调用：跨天则累计登录天数，返回是否跨天（供成就重新评估）。
+  bool touchLogin() {
+    final login = _data['login']! as Map;
+    if (login['lastDate'] == _today) return false;
+    login['lastDate'] = _today;
+    login['count'] = (login['count']! as int) + 1;
+    _save();
+    notifyListeners();
+    return true;
+  }
+
+  // ---- 背景音乐设置（首页"乐"入口：音量 + 曲目，2 个循环环境音对应替换）----
+
+  /// -2 = 无背景音乐；-1 = 每次修行随机选曲；0..4 = 固定选 bgmTracks[i]。
+  int get bgmTrackIndex => (_data['bgm']! as Map)['track']! as int;
+
+  double get bgmVolume =>
+      ((_data['bgm']! as Map)['volume'] as num?)?.toDouble() ?? 0.35;
+
+  void setBgmSettings({int? track, double? volume}) {
+    final m = _data['bgm']! as Map;
+    if (track != null) m['track'] = track;
+    if (volume != null) m['volume'] = volume.clamp(0.0, 1.0);
+    _save();
+    notifyListeners();
+  }
+
+  // ---- 修行首次教程（改进列表：每个修行第一次打开先看浮窗教程）----
+
+  bool isTutorialSeen(String practiceId) =>
+      (_data['tutorialsSeen']! as List).contains(practiceId);
+
+  void markTutorialSeen(String practiceId) {
+    final list = _data['tutorialsSeen']! as List;
+    if (list.contains(practiceId)) return;
+    list.add(practiceId);
     _save();
     notifyListeners();
   }

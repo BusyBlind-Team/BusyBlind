@@ -1,3 +1,5 @@
+import 'dart:math';
+
 /// 全 app 统一的声音语言（SoundBank 提供的音效目录）。
 ///
 /// 命名与《设计方案·七、教程与声音语言》的声音语义表对应：
@@ -24,8 +26,33 @@ abstract final class SoundCatalog {
   static const String tideLoopKey = 'tide_loop';
   static const String forestLoopKey = 'forest_loop';
 
+  /// 修行 BGM（改进列表：可选手一首或随机/无，放完隔一秒循环）。
+  /// name 是播放时展示给用户的名字。
+  static const List<({String key, String name})> bgmTracks = [
+    (key: 'bgm_liming', name: '黎明'),
+    (key: 'bgm_guzhong', name: '古钟'),
+    (key: 'bgm_fengling', name: '风铃'),
+    (key: 'bgm_hanlin', name: '寒林'),
+    (key: 'bgm_qingxi', name: '清溪'),
+  ];
+
+  /// 曲目设置：无背景音乐。
+  static const int bgmTrackNone = -2;
+
+  /// 曲目设置：每次修行随机抽一首（默认）。
+  static const int bgmTrackRandom = -1;
+
+  /// 把设置值解析成具体曲目：无 → null，随机 → 抽一首，其余 → 固定曲目。
+  static ({String key, String name})? resolveTrack(int setting, [Random? rng]) {
+    if (setting == bgmTrackNone) return null;
+    final tracks = bgmTracks;
+    if (setting >= 0 && setting < tracks.length) return tracks[setting];
+    return tracks[(rng ?? Random()).nextInt(tracks.length)];
+  }
+
   /// key → AssetSource 路径（audioplayers 的 AssetSource 会自动补 assets/ 前缀）。
-  static const Map<String, String> catalog = {
+  /// final 而非 const：包含 for 展开（BGM 音轨），编译期常量不支持。
+  static final Map<String, String> catalog = {
     'chime': 'sfx/chime.mp3',
     'chime_soft': 'sfx/chime_soft.mp3',
     'chime_double': 'sfx/chime_double.mp3',
@@ -42,5 +69,6 @@ abstract final class SoundCatalog {
     'swish': 'sfx/swish.mp3',
     'forest_loop': 'sfx/forest_loop.mp3',
     'tide_loop': 'sfx/tide_loop.mp3',
+    for (final t in bgmTracks) t.key: 'bgm/${t.key}.m4a',
   };
 }

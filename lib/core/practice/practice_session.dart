@@ -41,6 +41,10 @@ class PracticeContext {
       params[key] is int ? params[key]! as int : fallback;
   bool boolParam(String key, [bool fallback = false]) =>
       params[key] is bool ? params[key]! as bool : fallback;
+  double doubleParam(String key, double fallback) =>
+      params[key] is num ? (params[key]! as num).toDouble() : fallback;
+  String stringParam(String key, String fallback) =>
+      params[key] is String ? params[key]! as String : fallback;
 }
 
 /// 运行时逻辑：每个修行实现这一份契约。
@@ -57,6 +61,14 @@ abstract class PracticeSession {
   }
 
   PracticeManifest get manifest;
+
+  /// 开始界面的可选项（如听潮的呼吸法）。空 = 无选项。
+  /// 用户在开始界面点选后宿主会写回 [startChoice]，start() 时即可读取。
+  List<String> get startChoices => const [];
+
+  int get startChoice => 0;
+
+  set startChoice(int index) {}
 
   /// 预载音频、标定等准备工作（宿主在进入会话页前调用一次）。
   Future<void> prepare(PracticeContext ctx);

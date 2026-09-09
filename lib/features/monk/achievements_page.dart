@@ -8,8 +8,8 @@ import '../../domain/petals.dart';
 import '../../theme.dart';
 import '../../widgets/petal_icon.dart';
 
-/// 成（成就列表）：未解锁的成就灰色显示。
-/// 附带：修为等级表常驻说明 + 花瓣图鉴（收集/合成）。
+/// 成（成就列表，文案见《文案：成就》）：常规 + 隐藏两区，
+/// 隐藏成就解锁前只显示"？？？"。附带：修为等级表 + 花瓣图鉴（收集/合成）。
 class AchievementsPage extends ConsumerWidget {
   const AchievementsPage({super.key});
 
@@ -22,11 +22,21 @@ class AchievementsPage extends ConsumerWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
         children: [
-          const _SectionTitle('成就'),
-          for (final def in kAchievements)
+          const _SectionTitle('常规成就'),
+          for (final def in kAchievements.where((a) => !a.hidden))
             _AchievementRow(
               title: def.title,
               description: def.description,
+              unlocked: store.isUnlocked(def.id),
+            ),
+          const SizedBox(height: 20),
+          const _SectionTitle('隐藏成就'),
+          for (final def in kAchievements.where((a) => a.hidden))
+            _AchievementRow(
+              title: store.isUnlocked(def.id) ? def.title : '？？？',
+              description: store.isUnlocked(def.id)
+                  ? def.description
+                  : '尚未参透的修行……',
               unlocked: store.isUnlocked(def.id),
             ),
           const SizedBox(height: 20),
@@ -66,7 +76,14 @@ class AchievementsPage extends ConsumerWidget {
               onCraft: () => _craft(context, ref, tier),
             ),
           const SizedBox(height: 12),
-          for (final species in kFlowerSpecies)
+          // 按稀有度依次排列：瓣数升档，档内常见在前（改进列表花名修正）。
+          for (final species
+              in (kFlowerSpecies.toList()
+                ..sort((a, b) {
+                  final byTier = a.petals.compareTo(b.petals);
+                  if (byTier != 0) return byTier;
+                  return a.rarity.index.compareTo(b.rarity.index);
+                })))
             FlowerRow(
               species: species,
               owned: store.flowers.contains(species.id),
@@ -82,7 +99,7 @@ class AchievementsPage extends ConsumerWidget {
     if (drawn == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('合成了一朵${drawn.name}花（${drawn.rarityLabel}）'),
+        content: Text('合成了一朵${drawn.displayName}（${drawn.rarityLabel}）'),
         backgroundColor: const Color(0xFF2A2620),
       ),
     );

@@ -23,6 +23,7 @@ class PracticeScene extends StatefulWidget {
     this.count = 0,
     this.accent = 0,
     this.showText = true,
+    this.foreground = true,
   });
 
   final PracticeSceneKind kind;
@@ -37,6 +38,9 @@ class PracticeScene extends StatefulWidget {
   /// 视觉快照（golden）必须传 false：文本的字形栅格化依宿主字体而定，
   /// 会让基准图跨平台失效。文案由功能测试用 finder 断言。
   final bool showText;
+
+  /// 关闭后不画原生动态前景（木鱼改用本地图片前景时用）。
+  final bool foreground;
 
   @override
   State<PracticeScene> createState() => _PracticeSceneState();
@@ -108,19 +112,20 @@ class _PracticeSceneState extends State<PracticeScene>
               ),
             ),
           ),
-          AnimatedBuilder(
-            animation: _motion,
-            builder: (context, _) => CustomPaint(
-              painter: _ScenePainter(
-                kind: widget.kind,
-                motion: _motion.value,
-                progress: widget.progress.clamp(0, 1),
-                active: widget.active,
-                count: widget.count,
-                accent: widget.accent.clamp(0, 1),
+          if (widget.foreground)
+            AnimatedBuilder(
+              animation: _motion,
+              builder: (context, _) => CustomPaint(
+                painter: _ScenePainter(
+                  kind: widget.kind,
+                  motion: _motion.value,
+                  progress: widget.progress.clamp(0, 1),
+                  active: widget.active,
+                  count: widget.count,
+                  accent: widget.accent.clamp(0, 1),
+                ),
               ),
             ),
-          ),
           if (!widget.showText)
             const SizedBox.shrink()
           else
