@@ -4,6 +4,7 @@ import 'package:busy_blind/core/practice/practice_host.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/di.dart';
 import 'package:busy_blind/features/monk/sign_page.dart';
+import 'package:busy_blind/features/monk/meditation_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:flutter/material.dart';
@@ -124,5 +125,42 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(store.signedToday, isFalse);
+  });
+
+  testWidgets('打坐经系统返回也会写入会话并结算成就', (tester) async {
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(
+      harness(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const MeditationPage()),
+            ),
+            child: const Text('开始打坐'),
+          ),
+        ),
+        store: store,
+      ),
+    );
+    await tester.tap(find.text('开始打坐'));
+    await tester.pumpAndSettle();
+    // 经过真实的每秒计时，并在五分钟提示时确认在场。
+    for (var second = 1; second <= 600; second++) {
+      await tester.pump(const Duration(seconds: 1));
+      if (second % 300 == 0) {
+        await tester.tap(find.text('——你在吗？轻触任意处——'));
+        await tester.pump();
+      }
+    }
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(store.sessions.single['practiceId'], 'meditation');
+    expect(store.isUnlocked('meditate_10'), isTrue);
+    expect(store.sessions.single['durationMs'], 600000);
+    expect(find.byType(MeditationPage), findsNothing);
+    expect(find.text('开始打坐'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }
