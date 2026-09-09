@@ -24,8 +24,19 @@ abstract final class SoundCatalog {
   static const String tideLoopKey = 'tide_loop';
   static const String forestLoopKey = 'forest_loop';
 
+  /// 修行 BGM（改进列表：随机播五个之一，放完隔一秒循环）。
+  /// name 是播放时展示给用户的名字。
+  static const List<({String key, String name})> bgmTracks = [
+    (key: 'bgm_linjian', name: '林间'),
+    (key: 'bgm_yeyu', name: '夜雨'),
+    (key: 'bgm_xisheng', name: '溪声'),
+    (key: 'bgm_songfeng', name: '松风'),
+    (key: 'bgm_yuanshan', name: '远山'),
+  ];
+
   /// key → AssetSource 路径（audioplayers 的 AssetSource 会自动补 assets/ 前缀）。
-  static const Map<String, String> catalog = {
+  /// final 而非 const：包含 for 展开（BGM 音轨），编译期常量不支持。
+  static final Map<String, String> catalog = {
     'chime': 'sfx/chime.mp3',
     'chime_soft': 'sfx/chime_soft.mp3',
     'chime_double': 'sfx/chime_double.mp3',
@@ -42,5 +53,6 @@ abstract final class SoundCatalog {
     'swish': 'sfx/swish.mp3',
     'forest_loop': 'sfx/forest_loop.mp3',
     'tide_loop': 'sfx/tide_loop.mp3',
+    for (final t in bgmTracks) t.key: 'bgm/${t.key}.m4a',
   };
 }

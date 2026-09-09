@@ -23,5 +23,13 @@ abstract final class AppTheme {
       foregroundColor: ink,
       elevation: 0,
     ),
+    // 输入框不要默认下划线（改进列表：文字的黄色下划线删除）。
+    inputDecorationTheme: const InputDecorationTheme(
+      border: InputBorder.none,
+      enabledBorder: InputBorder.none,
+      focusedBorder: InputBorder.none,
+      filled: true,
+      fillColor: Color(0x14FFFFFF),
+    ),
   );
 }

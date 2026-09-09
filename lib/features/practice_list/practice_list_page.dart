@@ -1,13 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/audio/sound_catalog.dart';
 import '../../core/practice/practice_host.dart';
 import '../../core/practice/practice_manifest.dart';
 import '../../core/practice/practice_registry.dart';
 import '../../core/practice/practice_types.dart';
-import '../../di.dart';
-import '../../practices/tide_breath.dart' show kBreathTierLabels;
 import '../../theme.dart';
 
 /// 修 · 修行列表：纵向滑动列表，点击方块立刻滑动使其居中，
@@ -52,7 +49,6 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
   }
 
   void _confirm(int index) {
-    ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.6);
     final factory = practiceFactories[index];
     final manifest = _manifests[index];
     final params = <String, Object?>{};
@@ -70,10 +66,7 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('修'),
-        centerTitle: false,
-      ),
+      appBar: AppBar(),
       body: ListView.builder(
         padding: const EdgeInsets.only(top: 12, bottom: 32),
         itemCount: _manifests.length,
@@ -114,7 +107,7 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
                           ),
                         ),
                         Text(
-                          m.tags.map((t) => t.label).join(' · '),
+                          m.introTags.isNotEmpty ? m.introTags : m.tags.map((t) => t.label).join(' · '),
                           style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
                         ),
                       ],
@@ -207,6 +200,14 @@ class _PracticeDetail extends StatelessWidget {
               Text(_lengthLabel, style: const TextStyle(color: AppTheme.inkDim, fontSize: 13)),
             ],
           ),
+          if (manifest.introTags.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                manifest.introTags,
+                style: const TextStyle(color: AppTheme.goldDim, fontSize: 12, letterSpacing: 2),
+              ),
+            ),
           if (manifest.needsHeadphones)
             const Padding(
               padding: EdgeInsets.only(top: 6),
@@ -219,6 +220,14 @@ class _PracticeDetail extends StatelessWidget {
                 ],
               ),
             ),
+          if (manifest.intro.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Text(
+                manifest.intro,
+                style: const TextStyle(color: AppTheme.inkDim, fontSize: 13, height: 1.7),
+              ),
+            ),
           if (manifest.rulesText != null)
             Padding(
               padding: const EdgeInsets.only(top: 10),
@@ -228,28 +237,7 @@ class _PracticeDetail extends StatelessWidget {
               ),
             ),
           if (manifest.id == 'tide_breath') ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                const Text('节奏档位', style: TextStyle(color: AppTheme.inkDim, fontSize: 13)),
-                const SizedBox(width: 12),
-                for (var i = 0; i < kBreathTierLabels.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(kBreathTierLabels[i]),
-                      selected: breathTier == i,
-                      onSelected: (_) => onTierChanged(i),
-                      labelStyle: TextStyle(
-                        color: breathTier == i ? AppTheme.bg : AppTheme.inkDim,
-                        fontSize: 12,
-                      ),
-                      selectedColor: AppTheme.gold,
-                      backgroundColor: const Color(0x14E8DFC8),
-                    ),
-                  ),
-              ],
-            ),
+            // 呼吸法选择已移到开始界面（改进列表）。
             const SizedBox(height: 6),
             Row(
               children: [

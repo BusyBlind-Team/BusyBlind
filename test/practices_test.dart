@@ -55,16 +55,19 @@ InputEvent release(int sessionUs) => InputEvent(
 
 void main() {
   group('注册表', () {
-    test('六个修行，id 唯一，manifest 完整', () {
+    test('五个修行（静坐已移出列表），id 唯一，manifest 完整', () {
       final manifests = practiceFactories.map((f) => f().manifest).toList();
-      expect(manifests.length, 6);
-      expect(manifests.map((m) => m.id).toSet().length, 6);
+      expect(manifests.length, 5);
+      expect(manifests.map((m) => m.id), isNot(contains('sit_quiet')));
+      expect(manifests.map((m) => m.id).toSet().length, 5);
       for (final m in manifests) {
         expect(m.name, isNotEmpty);
         expect(m.subtitle, isNotEmpty);
         expect(m.tags, isNotEmpty);
         expect(m.meritBase, greaterThan(0));
         expect(m.typicalLength, greaterThan(Duration.zero));
+        expect(m.introTags, isNotEmpty);
+        expect(m.intro, isNotEmpty);
       }
     });
   });

@@ -13,7 +13,7 @@ import 'calibration_page.dart';
 /// 首启教程（设计方案·八，三段式）：
 /// ① 声音语义表——教一门声音语言，每条可现场试听；
 /// ② 60 秒试玩——复用"静坐"（同时是插件框架验收用例）；
-/// ③ 校准收尾——跟拍 16 次取中位数写入 L_user（可跳过，之后在"我"页随时可做）。
+/// ③ 校准收尾——判定线 5 下取中位数写入 L_user（可跳过，之后在"我"页随时可做）。
 class TutorialPage extends ConsumerStatefulWidget {
   const TutorialPage({super.key});
 
@@ -270,7 +270,7 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
           ),
           const SizedBox(height: 12),
           const Text(
-            '跟着节拍轻点 16 次，此后每一次声音与触摸的相遇，都会贴着你的耳朵来计算。\n\n'
+            '判定线扫到中间时会听见一声，那一刻点下屏幕，共 5 下。\n此后每一次声音与触摸的相遇，都会贴着你的耳朵来计算。\n\n'
             '也可以先跳过——在「我」页随时可以校准。',
             style: TextStyle(color: AppTheme.inkDim, fontSize: 14, height: 1.8),
           ),

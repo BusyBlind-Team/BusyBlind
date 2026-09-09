@@ -57,7 +57,7 @@ class MePage extends ConsumerWidget {
             leading: const Icon(Icons.graphic_eq, color: AppTheme.gold),
             title: const Text('时机校准', style: TextStyle(color: AppTheme.ink)),
             subtitle: Text(
-              '跟拍 16 次，取偏差中位数（当前 L_user = ${store.lUserUs} µs）',
+              '判定线 5 下，取偏差中位数（当前 L_user = ${store.lUserUs} µs）',
               style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
             ),
             onTap: () => Navigator.of(context).push(

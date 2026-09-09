@@ -116,6 +116,9 @@ class AppStore extends ChangeNotifier {
           'apiKey': '',
         },
     'reports': data['reports'] ?? <Object?>[],
+    // 登录天数（成就：刹那/禅七/……）与各修行首次教程已读标记。
+    'login': data['login'] ?? {'count': 0, 'lastDate': ''},
+    'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
   };
 
   // ---- 首启教程 ----
@@ -353,6 +356,34 @@ class AppStore extends ChangeNotifier {
   int get lUserUs => _data['lUserUs']! as int;
   set lUserUs(int us) {
     _data['lUserUs'] = us;
+    _save();
+    notifyListeners();
+  }
+
+  // ---- 登录天数（成就"刹那/禅七/……"口径：累计到访的自然日数）----
+
+  int get loginDays => (_data['login']! as Map)['count']! as int;
+
+  /// 每次启动调用：跨天则累计登录天数，返回是否跨天（供成就重新评估）。
+  bool touchLogin() {
+    final login = _data['login']! as Map;
+    if (login['lastDate'] == _today) return false;
+    login['lastDate'] = _today;
+    login['count'] = (login['count']! as int) + 1;
+    _save();
+    notifyListeners();
+    return true;
+  }
+
+  // ---- 修行首次教程（改进列表：每个修行第一次打开先看浮窗教程）----
+
+  bool isTutorialSeen(String practiceId) =>
+      (_data['tutorialsSeen']! as List).contains(practiceId);
+
+  void markTutorialSeen(String practiceId) {
+    final list = _data['tutorialsSeen']! as List;
+    if (list.contains(practiceId)) return;
+    list.add(practiceId);
     _save();
     notifyListeners();
   }

@@ -76,6 +76,8 @@ class CrossRiverSession extends PracticeSession {
     rulesText:
         '每一步会响起"叮——咚"。用长按把这个间隔在心里复现出来：\n听到叮预备，咚响起时按下，自认为到了间隔就松开。\n'
         '踩滑不会落水，但难度不再递进；差得远，就掉进河里了。',
+    introTags: '趣味·节奏',
+    intro: '闭上眼也能玩的跳一跳。跟随师傅的脚步声，在河上的木桩间跳跃吧。想想那冰冷的河水，果然还是得认真起来了。',
   );
 
   @override

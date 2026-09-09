@@ -14,6 +14,8 @@ class PracticeManifest {
     required this.iconKey,
     this.rulesText,
     this.allowManualEnd = false,
+    this.introTags = '',
+    this.intro = '',
   });
 
   /// 唯一 id，如 'wooden_fish'。
@@ -42,4 +44,10 @@ class PracticeManifest {
 
   /// 自定时长类修行（听潮/钓花）需要手动结束入口。
   final bool allowManualEnd;
+
+  /// 修行介绍的一行标签（如"专注·节奏"，修行介绍文案）。
+  final String introTags;
+
+  /// 修行介绍正文（修行列表详情展示；直接取自《修行介绍》文案）。
+  final String intro;
 }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/audio/sound_catalog.dart';
 import '../../data/app_store.dart';
 import '../../di.dart';
 import '../../domain/merit.dart';
@@ -81,7 +80,6 @@ class MonkPage extends ConsumerWidget {
               child: LowPolyButton(
                 label: '签',
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const SignPage()),
                   );
@@ -94,7 +92,6 @@ class MonkPage extends ConsumerWidget {
                 label: '成',
                 seed: 3,
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const AchievementsPage()),
                   );
@@ -107,7 +104,6 @@ class MonkPage extends ConsumerWidget {
                 label: '禅',
                 seed: 5,
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const MeditationPage()),
                   );
@@ -120,7 +116,6 @@ class MonkPage extends ConsumerWidget {
                 label: '友',
                 seed: 9,
                 onTap: () {
-                  ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.5);
                   Navigator.of(context).push(
                     MaterialPageRoute<void>(builder: (_) => const FriendsPage()),
                   );

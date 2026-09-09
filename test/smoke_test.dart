@@ -52,10 +52,10 @@ void main() {
     expect(find.text('禅'), findsOneWidget);
     expect(find.text('友'), findsOneWidget);
 
-    // 滑到左页签「修」：六个修行条目齐全。
+    // 滑到左页签「修」：五个修行条目齐全（静坐已按改进列表移除）。
     await tester.drag(find.byType(PageView), const Offset(500, 0));
     await tester.pumpAndSettle();
-    expect(find.text('静坐'), findsOneWidget);
+    expect(find.text('静坐'), findsNothing);
     expect(find.text('木鱼'), findsOneWidget);
     expect(find.text('数雨'), findsOneWidget);
     expect(find.text('听潮'), findsOneWidget);
@@ -70,8 +70,12 @@ void main() {
   });
 
   testWidgets('修行运行中触发系统返回 → 拦截为"用户结束"并出结算页', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: WoodenFishSession.new)),
+      harness(
+        home: PracticeHostPage(factory: WoodenFishSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -90,7 +94,7 @@ void main() {
 
   testWidgets('完成修行 → 结算页展示修为与新解锁的成就', (tester) async {
     final clock = FakeClock();
-    final store = AppStore.inMemory();
+    final store = AppStore.inMemory()..touchLogin();
     await tester.pumpWidget(
       harness(
         home: PracticeHostPage(factory: SitQuietSession.new),
@@ -110,8 +114,11 @@ void main() {
 
     expect(find.text('修行结束'), findsOneWidget);
     expect(find.text('修为 +1'), findsOneWidget);
-    expect(find.textContaining('初入山门'), findsOneWidget); // 首次修行成就可见
-    expect(store.isUnlocked('first_session'), isTrue);
+    expect(find.textContaining('刹那'), findsOneWidget); // 登录成就可见
+    expect(store.isUnlocked('login_1'), isTrue);
+    expect(store.isUnlocked('level_langzi'), isTrue); // 浪子档随 1 点修为达成
+    // 教程试玩是"静坐"（sit_quiet），不计入打坐（meditation）成就。
+    expect(store.isUnlocked('meditation_1'), isFalse);
   });
 
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {

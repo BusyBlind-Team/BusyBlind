@@ -58,6 +58,14 @@ abstract class PracticeSession {
 
   PracticeManifest get manifest;
 
+  /// 开始界面的可选项（如听潮的呼吸法）。空 = 无选项。
+  /// 用户在开始界面点选后宿主会写回 [startChoice]，start() 时即可读取。
+  List<String> get startChoices => const [];
+
+  int get startChoice => 0;
+
+  set startChoice(int index) {}
+
   /// 预载音频、标定等准备工作（宿主在进入会话页前调用一次）。
   Future<void> prepare(PracticeContext ctx);
 

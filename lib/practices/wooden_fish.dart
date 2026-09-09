@@ -52,6 +52,8 @@ class WoodenFishSession extends PracticeSession {
     meritBase: _meritBase,
     iconKey: 'wooden_fish',
     rulesText: '没有节拍器。闭上眼，在心里守住一秒一击的节奏，敲满一百零八声。',
+    introTags: '专注·节奏',
+    intro: '传说，人共有一百零八样烦恼。守住一秒一击的节奏，把这木鱼敲一百零八下，就可以纾解心中所有的不快。',
   );
 
   @override
@@ -163,14 +165,29 @@ class WoodenFishSession extends PracticeSession {
 
   @override
   Widget buildVisual(BuildContext c) {
-    return PracticeScene(
-      kind: PracticeSceneKind.woodenFish,
-      title: '木 鱼',
-      subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '$_strikes / $_totalStrikes 声',
-      progress: _strikes / _totalStrikes,
-      active: _strikes > 0,
-      count: _strikes,
-      accent: _muffled ? 0.2 : 1,
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: PracticeScene(
+            kind: PracticeSceneKind.woodenFish,
+            title: '木 鱼',
+            subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '\$_strikes / \$_totalStrikes 声',
+            progress: _strikes / _totalStrikes,
+            active: _strikes > 0,
+            count: _strikes,
+            accent: _muffled ? 0.2 : 1,
+            // 前景改用本地图片（木鱼 + 敲木鱼的棒子），关掉原生画笔前景。
+            foreground: false,
+          ),
+        ),
+        Positioned.fill(
+          child: _MuyuView(
+            pulse: _strikes,
+            muffled: _muffled,
+            finished: _strikes >= _totalStrikes,
+          ),
+        ),
+      ],
     );
   }
 
@@ -244,5 +261,106 @@ class _Row extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// 木鱼图片化前景（改进列表）：木鱼与敲木鱼的棒子用本地图片，
+/// 敲击动画 = 棒子旋转碰到木鱼 → 虚化淡出，木鱼略微放大后快速缩回原大。
+class _MuyuView extends StatefulWidget {
+  const _MuyuView({
+    required this.pulse,
+    required this.muffled,
+    required this.finished,
+  });
+
+  /// 每敲一次 +1，驱动一次敲击动画。
+  final int pulse;
+  final bool muffled;
+  final bool finished;
+
+  @override
+  State<_MuyuView> createState() => _MuyuViewState();
+}
+
+class _MuyuViewState extends State<_MuyuView> with SingleTickerProviderStateMixin {
+  late final AnimationController _strike;
+
+  @override
+  void initState() {
+    super.initState();
+    _strike = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 450),
+      value: 1,
+    );
+  }
+
+  @override
+  void didUpdateWidget(covariant _MuyuView old) {
+    super.didUpdateWidget(old);
+    if (widget.pulse != old.pulse) {
+      _strike.forward(from: 0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _strike,
+      builder: (context, _) {
+        final t = _strike.isAnimating ? _strike.value : 1.0;
+        // 0–0.3 棒子从抬起到落（碰到木鱼）；0.3 之后虚化淡出。
+        final swing = Curves.easeIn.transform((t / 0.3).clamp(0.0, 1.0));
+        final stickAngle = -0.9 + 0.9 * swing; // 弧度：-0.9 → 0
+        final stickOpacity = t <= 0.3
+            ? 1.0
+            : (1 - (t - 0.3) / 0.4).clamp(0.0, 1.0);
+        // 木鱼：命中瞬间（0.3）放大到 1.1，随后快速缩回 1.0。
+        final muyuScale = t <= 0.3
+            ? 1.0 + 0.1 * (t / 0.3)
+            : 1.0 + 0.1 * (1 - Curves.easeOut.transform(((t - 0.3) / 0.35).clamp(0.0, 1.0)));
+        final muyuTint = widget.muffled ? const Color(0x55201A12) : const Color(0x00000000);
+
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Spacer(flex: 3),
+            // 棒子：绕握柄端（左下）旋转，敲向木鱼。
+            Opacity(
+              opacity: stickOpacity,
+              child: Transform.rotate(
+                alignment: Alignment.bottomLeft,
+                angle: stickAngle,
+                child: Image.asset(
+                  'assets/images/敲木鱼的棒子.png',
+                  width: 150,
+                  errorBuilder: (_, _, _) => const SizedBox(width: 150, height: 48),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Transform.scale(
+              scale: muyuScale,
+              child: ColorFiltered(
+                colorFilter: ColorFilter.mode(muyuTint, BlendMode.srcATop),
+                child: Image.asset(
+                  'assets/images/木鱼.png',
+                  width: 190,
+                  errorBuilder: (_, _, _) =>
+                      const SizedBox(width: 190, height: 135),
+                ),
+              ),
+            ),
+            const Spacer(flex: 4),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _strike.dispose();
+    super.dispose();
   }
 }
