@@ -27,11 +27,11 @@ abstract final class SoundCatalog {
   /// 修行 BGM（改进列表：随机播五个之一，放完隔一秒循环）。
   /// name 是播放时展示给用户的名字。
   static const List<({String key, String name})> bgmTracks = [
-    (key: 'bgm_linjian', name: '林间'),
-    (key: 'bgm_yeyu', name: '夜雨'),
-    (key: 'bgm_xisheng', name: '溪声'),
-    (key: 'bgm_songfeng', name: '松风'),
-    (key: 'bgm_yuanshan', name: '远山'),
+    (key: 'bgm_liming', name: '黎明'),
+    (key: 'bgm_guzhong', name: '古钟'),
+    (key: 'bgm_fengling', name: '风铃'),
+    (key: 'bgm_hanlin', name: '寒林'),
+    (key: 'bgm_qingxi', name: '清溪'),
   ];
 
   /// key → AssetSource 路径（audioplayers 的 AssetSource 会自动补 assets/ 前缀）。

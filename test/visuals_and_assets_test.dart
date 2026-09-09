@@ -76,9 +76,9 @@ void main() {
         sfxBytes += file.lengthSync();
       }
     }
-    // 压缩守门只针对 SFX；BGM 是新增环境音乐，单独给 2MB 上限。
+    // 压缩守门只针对 SFX；BGM 为正式音乐素材（5 首 × ~80s AAC ≈ 6MB）。
     expect(sfxBytes, lessThan(2376370 ~/ 2));
-    expect(bgmBytes, lessThan(2 * 1024 * 1024));
+    expect(bgmBytes, lessThan(8 * 1024 * 1024));
     expect(
       Directory('assets/sfx')
           .listSync()
@@ -245,7 +245,7 @@ void main() {
         final data = await rootBundle.load('assets/images/$name.png');
         expect(data.lengthInBytes, greaterThan(0), reason: name);
       }
-      final bgm = await rootBundle.load('assets/bgm/bgm_linjian.m4a');
+      final bgm = await rootBundle.load('assets/bgm/bgm_liming.m4a');
       expect(bgm.lengthInBytes, greaterThan(0));
     });
   });
