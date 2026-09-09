@@ -122,7 +122,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   void _dispatchInput(PointerEvent e, PointerPhase phase) {
     final ctx = _ctx;
     if (ctx == null || !_running || _finishing) return;
-    final event = ctx.input.capture(e, ctx.scheduler.nowUs);
+    final event = ctx.input.capture(e, ctx.scheduler.toSessionUs);
     if (phase != PointerPhase.move) {
       ctx.recorder.log('input:${phase.name}', {'sessionUs': event.sessionUs});
     }
