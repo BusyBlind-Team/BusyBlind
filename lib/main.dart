@@ -20,9 +20,14 @@ Future<void> main() async {
   // 助眠模式次日补发的修为到账。
   store.takePendingMerit();
 
-  // 音效库：全部预加载进内存池，禁止播放时解码。
+  // 音效库：短音效全部预加载进内存池，禁止播放时解码。
+  // BGM（bgm_*）不进内存池——由 BgmPlayer 按需流式播放（第 17 轮自检：
+  // 5 首 80 秒曲目整段解码进内存会无谓占用大量内存）。
   final sounds = AudioPlayersSoundBank();
-  await sounds.preload(SoundCatalog.catalog);
+  await sounds.preload({
+    for (final e in SoundCatalog.catalog.entries)
+      if (!e.key.startsWith('bgm_')) e.key: e.value,
+  });
 
   // 时钟：载入用户校准偏移。
   final clock = SystemAudioClock();

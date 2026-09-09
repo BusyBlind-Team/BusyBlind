@@ -49,16 +49,17 @@ class BgmPlayer {
           orElse: () => track,
         );
       }
-      player = AudioPlayer();
+      final created = AudioPlayer();
+      player = created;
       // 先登记再 await：期间被 stop()/dispose() 也能停到它。
-      _player = player;
+      _player = created;
       _stopped = false;
       _paused = false;
       _pendingPlay = false;
       _asset = SoundCatalog.catalog[track.key];
       _trackName = track.name;
       _volume = volume.clamp(0.0, 1.0);
-      _completeSub = player.onPlayerComplete.listen((_) => _replayAfterGap());
+      _completeSub = created.onPlayerComplete.listen((_) => _replayAfterGap(created));
       await player.setReleaseMode(ReleaseMode.stop);
       // 停止/换代 → 释放半路播放器并立即退出启动流程，
       // 不得再操作已释放的播放器（复审 P2-3）。
@@ -104,16 +105,18 @@ class BgmPlayer {
   }
 
   /// 放完歇两秒，从头再放；歇的期间退后台 → 标记待播，恢复时再放。
-  Future<void> _replayAfterGap() async {
+  /// [player] 为触发本回调的实例：若期间已 stop 并换了新曲目，
+  /// 旧回调不得重启新播放器的曲目（第 15 轮自检：跨局重放竞态）。
+  Future<void> _replayAfterGap(AudioPlayer player) async {
     if (_stopped) return;
     await Future<void>.delayed(const Duration(seconds: 2));
-    if (_stopped) return;
+    if (_stopped || _player != player) return;
     if (_paused) {
       _pendingPlay = true;
       return;
     }
     try {
-      await _player?.play(AssetSource(_asset!));
+      await player.play(AssetSource(_asset!));
     } on Exception {
       // 播放器已被释放（页面退出竞态），静默结束。
     }
@@ -129,7 +132,7 @@ class BgmPlayer {
     if (_stopped || !_paused) return;
     _paused = false;
     if (_pendingPlay) {
-      // 启动期间被挂起的首次播放。
+      // 启动/循环间隙被挂起的播放。
       _pendingPlay = false;
       try {
         await _player?.play(AssetSource(_asset!));

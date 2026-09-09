@@ -81,10 +81,10 @@ class AppStore extends ChangeNotifier {
     if (!tutorialDone && hasHistory) {
       data['tutorialDone'] = true;
     }
-    // 花瓣口径迁移：旧版按物种 Map → 总数 int → 按稀有度分桶
-    //（新改进意见）；历次存量都不丢，旧总数一律计入"常见"桶。
+    // 花瓣口径迁移（第 16 轮自检修正）：三段链 v0 物种 Map → v1 总数
+    // int → v2 按稀有度分桶。注意第二段读取的是 data['petals']（上一段
+    // 刚写入的 int），不是过期的局部变量；清零保证重复迁移幂等。
     final petals = data['petals'];
-    final byRarity = data['petalsByRarity'];
     if (petals is Map) {
       var total = 0;
       for (final v in petals.values) {
@@ -92,9 +92,11 @@ class AppStore extends ChangeNotifier {
       }
       data['petals'] = total;
     }
-    if (byRarity is Map && petals is int) {
-      byRarity['common'] = (byRarity['common'] as int? ?? 0) + petals;
-      data.remove('petals');
+    final petalsNow = data['petals'];
+    final byRarity = data['petalsByRarity'];
+    if (byRarity is Map && petalsNow is int && petalsNow > 0) {
+      byRarity['common'] = (byRarity['common'] as int? ?? 0) + petalsNow;
+      data['petals'] = 0;
     }
     // Key 分服务商保存（PR #14 复审 P1-2）：把升级前已填的 Key
     // 按其 baseUrl 播种进 llmKeys，避免老用户升级后丢 Key。

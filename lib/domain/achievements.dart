@@ -240,6 +240,9 @@ final List<AchievementDef> kAchievements = [
             .where(
               (s) =>
                   s['practiceId'] == 'count_rain' &&
+                  // 必须真正报过数：中途退出的会话 error 无意义
+                  //（第 15 轮自检：秒退 N 次不能白拿"完全准确"）。
+                  ((s['metrics'] as Map?)?['userReport'] != null) &&
                   ((s['metrics'] as Map?)?['error'] as num? ?? -1) == 0,
             )
             .length >=
@@ -266,7 +269,9 @@ final List<AchievementDef> kAchievements = [
     test: (e) => _anySession(
       e.store,
       'tide_breath',
-      (m) => (_metric(m, 'avgSync') ?? 0) > 0.90,
+      (m) =>
+          ((m['phaseCount'] as num?) ?? 0) >= 2 &&
+          (_metric(m, 'avgSync') ?? 0) > 0.90,
     ),
   ),
 
@@ -338,7 +343,9 @@ final List<AchievementDef> kAchievements = [
     test: (e) => _anySession(
       e.store,
       'tide_breath',
-      (m) => (_metric(m, 'avgSync') ?? 1) < 0.10,
+      (m) =>
+          ((m['phaseCount'] as num?) ?? 0) >= 2 &&
+          (_metric(m, 'avgSync') ?? 1) < 0.10,
     ),
   ),
   AchievementDef(

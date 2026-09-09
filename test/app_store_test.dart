@@ -74,16 +74,24 @@ void main() {
       expect(store.petalCountOf(PetalRarity.rare), 0);
     });
 
-    test('旧版花瓣存量迁移：物种 Map → 总数 → 常见桶', () {
+    test('旧版花瓣存量迁移：物种 Map → 总数 → 常见桶（三段链，幂等）', () {
+      // v0：物种 Map 存档。
       final migrated = AppStore.applyMigrations({
         'tutorialDone': false,
         'merit': 0,
         'sessions': <Object?>[],
         'petals': {'sakura': 2, 'peach': 3},
+        'petalsByRarity': {'common': 0, 'rare': 0, 'legendary': 0},
       });
-      expect(migrated['petals'], 5);
+      // 一段迁移后：总数 5 且已全额计入"常见"桶（第 16 轮修正前
+      // 分桶恒为 0，存量被遗弃）。
+      expect(migrated['petals'], 0);
+      expect(
+        (migrated['petalsByRarity'] as Map)['common'],
+        5,
+      );
 
-      // 再升级一版：总数按"常见"桶入库。
+      // v1：总数 int 存档 → 直接入桶。
       final migrated2 = AppStore.applyMigrations({
         'tutorialDone': false,
         'merit': 0,
@@ -91,7 +99,14 @@ void main() {
         'petals': 5,
         'petalsByRarity': {'common': 0, 'rare': 0, 'legendary': 0},
       });
+      expect(migrated2['petals'], 0);
       expect(migrated2['petalsByRarity'], containsPair('common', 5));
+
+      // 幂等：对同一份数据重复迁移不重复累加。
+      final again = AppStore.applyMigrations(
+        Map<String, Object?>.from(migrated2),
+      );
+      expect(again['petalsByRarity'], containsPair('common', 5));
     });
 
     test('8 枚奇珍花瓣固定合成莲花；稀有度不串桶', () {
