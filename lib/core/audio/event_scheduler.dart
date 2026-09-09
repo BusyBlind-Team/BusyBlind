@@ -41,7 +41,8 @@ class EventScheduler {
   final List<_SchedItem> _items = [];
   final List<Timer> _pendingWallTimers = [];
 
-  bool get isRunning => _running;
+  /// 是否处于活动会话；暂停时独立轮询也必须停止处理玩法状态。
+  bool get isRunning => _running && _pausedAtUs == null;
 
   /// 开始一根新的会话时间轴。
   void begin() {
@@ -56,7 +57,7 @@ class EventScheduler {
   }
 
   /// 会话时间轴当前时刻（µs，自 begin 起算，不含暂停）。
-  int nowUs() => _clock.nowUs() - _baseUs - _pausedTotalUs;
+  int nowUs() => (_pausedAtUs ?? _clock.nowUs()) - _baseUs - _pausedTotalUs;
 
   /// 绝对音频时间 → 会话时间。
   int toSessionUs(int absAudioUs) => absAudioUs - _baseUs - _pausedTotalUs;
@@ -128,6 +129,12 @@ class EventScheduler {
   }
 
   void _fire(_SchedItem item) {
+    // pause() 取消 Timer 后，已经进入事件队列的回调仍可能被调用。
+    // 这时保留事件给 resume 后重新预约，不能在暂停期改变玩法状态。
+    if (!_running || _pausedAtUs != null) {
+      item.armed = false;
+      return;
+    }
     item
       ..fired = true
       ..armed = false;

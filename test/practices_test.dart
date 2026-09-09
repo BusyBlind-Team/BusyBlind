@@ -374,6 +374,31 @@ void main() {
   });
 
   group('钓花', () {
+    test('暂停期间不触发反挂机；恢复后只按活动会话时间结算', () {
+      fakeAsync((async) {
+        FinishReason? reason;
+        final (ctx, clock, _, scheduler) = makeContext((r) => reason = r);
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        scheduler.pause();
+        clock.advanceUs(91000000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(reason, isNull);
+        expect(scheduler.nowUs(), 0);
+
+        scheduler.resume();
+        clock.advanceUs(90000000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(reason, FinishReason.antiIdle);
+
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
+
     test('聚瓣期概率曲线：前 2 秒为 0，10s≈20%，60s≈60%', () {
       expect(FishPetalsSession.biteRatePerSecond(0), 0);
       expect(FishPetalsSession.biteRatePerSecond(1999999), 0);

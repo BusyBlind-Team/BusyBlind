@@ -30,8 +30,11 @@ void main() {
       clock.advanceUs(1000000);
       async.elapse(const Duration(milliseconds: 100));
       expect(fired, isFalse);
+      expect(scheduler.isRunning, isFalse);
+      expect(scheduler.nowUs(), 500000);
 
       scheduler.resume();
+      expect(scheduler.isRunning, isTrue);
       // 会话时间应仍为 0.5s：clock 2.5M − base 1M − 暂停 1M。
       expect(scheduler.nowUs(), 500000);
 
