@@ -46,11 +46,13 @@ int _countSessions(AppStore store, String practiceId) => store.sessions
 bool _anySession(
   AppStore store,
   String practiceId,
-  bool Function(Map<String, Object?> metrics) where,
-) =>
+  bool Function(Map<String, Object?> metrics) where, {
+  bool requireCompleted = false,
+}) =>
     store.sessions.any(
       (s) =>
           s['practiceId'] == practiceId &&
+          (!requireCompleted || s['completed'] == true) &&
           where((s['metrics'] as Map?)?.cast<String, Object?>() ?? const {}),
     );
 
@@ -201,11 +203,19 @@ final List<AchievementDef> kAchievements = [
     id: 'muyu_offset5',
     title: '致命节奏',
     description: '我是一个忧伤节拍器。',
-    test: (e) => _anySession(e.store, 'wooden_fish', (m) {
-      final totalMs = (m['totalMs'] as num?)?.toDouble();
-      return totalMs != null &&
-          ((totalMs - WoodenFishPace.idealTotalMs).abs() / 1000 <= 5);
-    }),
+    // 必须完整敲满 108 声——只敲两下、间隔 107 秒再退出不算（复审 P2-6）。
+    test: (e) => _anySession(
+      e.store,
+      'wooden_fish',
+      (m) {
+        final totalMs = (m['totalMs'] as num?)?.toDouble();
+        final strikes = m['strikes'] as int? ?? 0;
+        return totalMs != null &&
+            strikes >= 108 &&
+            ((totalMs - WoodenFishPace.idealTotalMs).abs() / 1000 <= 5);
+      },
+      requireCompleted: true,
+    ),
   ),
 
   // ---- 数雨 ----
@@ -298,11 +308,16 @@ final List<AchievementDef> kAchievements = [
     title: '爆裂木鱼手',
     description: '朋友，也许乐队更适合你……',
     hidden: true,
-    test: (e) => _anySession(e.store, 'wooden_fish', (m) {
-      final strikes = m['strikes'] as int? ?? 0;
-      final totalMs = m['totalMs'] as int? ?? 1 << 31;
-      return strikes >= 108 && totalMs <= 15000;
-    }),
+    test: (e) => _anySession(
+      e.store,
+      'wooden_fish',
+      (m) {
+        final strikes = m['strikes'] as int? ?? 0;
+        final totalMs = m['totalMs'] as int? ?? 1 << 31;
+        return strikes >= 108 && totalMs <= 15000;
+      },
+      requireCompleted: true,
+    ),
   ),
   AchievementDef(
     id: 'rain_err10',

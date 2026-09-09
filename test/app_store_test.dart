@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:busy_blind/core/llm/llm_client.dart';
 import 'package:busy_blind/data/app_store.dart';
+import 'package:busy_blind/domain/achievements.dart';
 import 'package:busy_blind/domain/petals.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
@@ -104,6 +105,69 @@ void main() {
       store.setBgmSettings(track: -1);
       expect(store.bgmTrackIndex, -1);
       expect(store.bgmVolume, 1.0); // 未改音量保持
+    });
+
+    test('LLM Key 按服务商分别保存，切换不串用（复审 P1-2）', () {
+      final store = AppStore.inMemory();
+      store.saveLlmConfig(LlmPresets.glm.copyWith(apiKey: 'glm-key'));
+      expect(store.keyForBaseUrl(LlmPresets.glm.baseUrl), 'glm-key');
+
+      // 切到 DeepSeek 且尚未填 Key：不该把智谱的 Key 发给 DeepSeek。
+      store.saveLlmConfig(LlmPresets.deepseek.copyWith(apiKey: ''));
+      expect(store.llmReady, isFalse);
+      expect(store.keyForBaseUrl(LlmPresets.deepseek.baseUrl), '');
+
+      store.saveLlmConfig(LlmPresets.deepseek.copyWith(apiKey: 'ds-key'));
+      expect(store.keyForBaseUrl(LlmPresets.glm.baseUrl), 'glm-key');
+      expect(store.keyForBaseUrl(LlmPresets.deepseek.baseUrl), 'ds-key');
+    });
+
+    test('迁移：升级前已填的 Key 按 baseUrl 播种进 llmKeys', () {
+      final migrated = AppStore.applyMigrations({
+        'tutorialDone': false,
+        'merit': 0,
+        'sessions': <Object?>[],
+        'petals': 0,
+        'llm': {
+          'baseUrl': LlmPresets.glm.baseUrl,
+          'model': 'glm-4-flash',
+          'apiKey': 'legacy-key',
+        },
+        'llmKeys': <String, String>{},
+      });
+      expect(
+        migrated['llmKeys'],
+        containsPair(LlmPresets.glm.baseUrl, 'legacy-key'),
+      );
+    });
+
+    test('致命节奏/爆裂木鱼手必须完整敲满 108 声（复审 P2-6）', () {
+      final offset = kAchievements.firstWhere((a) => a.id == 'muyu_offset5');
+      final burst = kAchievements.firstWhere((a) => a.id == 'muyu_15s');
+
+      // 敲 2 下、间隔 107 秒、中途退出：总间隔接近满拍也不解锁。
+      final store = AppStore.inMemory();
+      store.addSession(
+        practiceId: 'wooden_fish',
+        merit: 0,
+        completed: false,
+        durationMs: 107000,
+        metrics: {'strikes': 2, 'totalMs': 107000},
+      );
+      expect(offset.test(AchievementEval(store: store)), isFalse);
+      expect(burst.test(AchievementEval(store: store)), isFalse);
+
+      // 完整敲满 108 声、偏移 3 秒 → 致命节奏解锁；15 秒内不成立。
+      final store2 = AppStore.inMemory();
+      store2.addSession(
+        practiceId: 'wooden_fish',
+        merit: 10,
+        completed: true,
+        durationMs: 110000,
+        metrics: {'strikes': 108, 'totalMs': 110000},
+      );
+      expect(offset.test(AchievementEval(store: store2)), isTrue);
+      expect(burst.test(AchievementEval(store: store2)), isFalse);
     });
 
     test('成就解锁幂等', () {

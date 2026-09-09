@@ -115,7 +115,8 @@ class _ReportPageState extends ConsumerState<ReportPage> {
         'text': text,
       });
     } on LlmException catch (e) {
-      setState(() => _error = e.message);
+      // 生成期间可能已离开页面：先查 mounted 再 setState（复审 P2-5）。
+      if (mounted) setState(() => _error = e.message);
     } finally {
       if (mounted) setState(() => _generating = false);
     }
@@ -151,6 +152,7 @@ class _ReportPageState extends ConsumerState<ReportPage> {
       // 弹层自建自毁输入控制器（随关闭动画安全释放），页面只收"是否保存"。
       builder: (ctx) => _LlmSettingsSheet(
         initial: store.llmConfig,
+        storedKey: store.keyForBaseUrl,
         onSave: (config) {
           store.saveLlmConfig(config);
           Navigator.of(ctx).pop(true);
@@ -372,9 +374,17 @@ class _EmptyCard extends StatelessWidget {
 /// 模型设置底部弹层：预设 + baseUrl / 模型 / Key 表单。
 /// 自建自毁输入控制器，键盘弹起时自动上移（isScrollControlled + viewInsets）。
 class _LlmSettingsSheet extends StatefulWidget {
-  const _LlmSettingsSheet({required this.initial, required this.onSave});
+  const _LlmSettingsSheet({
+    required this.initial,
+    required this.storedKey,
+    required this.onSave,
+  });
 
   final LlmConfig initial;
+
+  /// 某服务商（baseUrl）此前保存过的 Key；切换服务商时据此换 Key。
+  final String? Function(String baseUrl) storedKey;
+
   final void Function(LlmConfig config) onSave;
 
   @override
@@ -389,6 +399,10 @@ class _LlmSettingsSheetState extends State<_LlmSettingsSheet> {
   late final TextEditingController _apiKey =
       TextEditingController(text: widget.initial.apiKey);
   late String _presetId;
+
+  /// 当前 Key 输入框内容所属的 baseUrl——baseUrl 变化时据此换 Key，
+  /// 不把上一家服务商的密钥发给下一家（复审 P1-2）。
+  late String _keyOwner;
 
   static const _presets = [
     ('glm', '智谱 GLM', LlmPresets.glm),
@@ -409,10 +423,24 @@ class _LlmSettingsSheetState extends State<_LlmSettingsSheet> {
         break;
       }
     }
+    _keyOwner = widget.initial.baseUrl;
+    _baseUrl.addListener(_swapKeyWithBaseUrl);
+  }
+
+  void _swapKeyWithBaseUrl() {
+    final baseUrl = _baseUrl.text.trim();
+    if (baseUrl == _keyOwner) return;
+    _keyOwner = baseUrl;
+    final stored = widget.storedKey(baseUrl);
+    final next = stored ?? '';
+    if (_apiKey.text != next) {
+      _apiKey.text = next;
+    }
   }
 
   @override
   void dispose() {
+    _baseUrl.removeListener(_swapKeyWithBaseUrl);
     _baseUrl.dispose();
     _model.dispose();
     _apiKey.dispose();

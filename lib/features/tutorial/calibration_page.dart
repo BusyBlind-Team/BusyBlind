@@ -182,24 +182,29 @@ class _CalibrationTrackPainter extends CustomPainter {
   final double position;
   final bool running;
 
+  /// 动线扫动区：左缘 12% → 屏幕中线（位置 0 = 左缘，1 = 定线）。
+  static const double _trackStart = 0.12;
+  static const double _trackEnd = 0.50;
+
   @override
   void paint(Canvas canvas, Size size) {
     final y = size.height / 2;
+    final x0 = size.width * _trackStart;
+    final x1 = size.width * _trackEnd;
     final track = Paint()
       ..color = const Color(0x22E8DFC8)
       ..strokeWidth = 2;
-    canvas.drawLine(Offset(0, y), Offset(size.width, y), track);
+    canvas.drawLine(Offset(x0, y), Offset(x1, y), track);
 
-    // 中间定线。
-    final cx = size.width / 2;
+    // 中间定线（动线扫到这里的瞬间发声）。
     final center = Paint()
       ..color = AppTheme.gold
       ..strokeWidth = 2.4;
-    canvas.drawLine(Offset(cx, y - 14), Offset(cx, y + 14), center);
+    canvas.drawLine(Offset(x1, y - 14), Offset(x1, y + 14), center);
 
-    // 动线。
+    // 动线：位置与发声时刻对齐——值 1 即定线（复审 P2-4）。
     if (running) {
-      final x = position * size.width;
+      final x = x0 + position * (x1 - x0);
       final line = Paint()
         ..color = const Color(0xFFE8DFC8)
         ..strokeWidth = 3;

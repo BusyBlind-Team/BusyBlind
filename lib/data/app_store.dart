@@ -91,6 +91,17 @@ class AppStore extends ChangeNotifier {
       }
       data['petals'] = total;
     }
+    // Key 分服务商保存（PR #14 复审 P1-2）：把升级前已填的 Key
+    // 按其 baseUrl 播种进 llmKeys，避免老用户升级后丢 Key。
+    final llm = data['llm'];
+    if (llm is Map) {
+      final baseUrl = llm['baseUrl'] as String? ?? '';
+      final apiKey = llm['apiKey'] as String? ?? '';
+      final keys = data['llmKeys'];
+      if (keys is Map && baseUrl.isNotEmpty && apiKey.isNotEmpty) {
+        keys[baseUrl] ??= apiKey;
+      }
+    }
     return data;
   }
 
@@ -121,6 +132,8 @@ class AppStore extends ChangeNotifier {
     'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
     // 背景音乐设置：track = 曲目索引（-1 = 随机），volume = 0..1。
     'bgm': data['bgm'] ?? {'track': -1, 'volume': 0.35},
+    // 各服务商（按 baseUrl）分别保存的 API Key，避免切换服务商串密钥。
+    'llmKeys': data['llmKeys'] ?? <String, String>{},
   };
 
   // ---- 首启教程 ----
@@ -332,12 +345,18 @@ class AppStore extends ChangeNotifier {
 
   bool get llmReady => llmConfig.apiKey.trim().isNotEmpty;
 
+  /// 某服务商（baseUrl）此前保存过的 Key；没有则 null。
+  String? keyForBaseUrl(String baseUrl) =>
+      (_data['llmKeys']! as Map)[baseUrl] as String?;
+
   void saveLlmConfig(LlmConfig config) {
     _data['llm'] = {
       'baseUrl': config.baseUrl,
       'model': config.model,
       'apiKey': config.apiKey,
     };
+    // 按 baseUrl 记录 Key：切换服务商时各用各的，互不串用（复审 P1-2）。
+    (_data['llmKeys']! as Map)[config.baseUrl] = config.apiKey;
     _save();
     notifyListeners();
   }

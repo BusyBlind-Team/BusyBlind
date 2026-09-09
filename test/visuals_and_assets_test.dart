@@ -250,4 +250,10 @@ void main() {
     });
   });
 
+  test('Android 主清单声明 INTERNET 权限（修炼报告联网）', () {
+    final manifest =
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync();
+    expect(manifest, contains('android.permission.INTERNET'));
+  });
+
 }

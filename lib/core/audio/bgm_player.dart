@@ -23,11 +23,17 @@ class BgmPlayer {
   StreamSubscription<void>? _completeSub;
   double _volume = 0.35;
 
+  /// 启动代数：每次 start/stop 递增。start() 的每一步 await 后都核对
+  /// 代数与停止标记，退出竞态下会把半路启动的播放器就地释放（复审 P2-3）。
+  int _generation = 0;
+
   /// 开始播放：[trackIndex] 为 -1 时随机选曲；[asset] 直接指定资产
   /// （宿主已为整局解析好同一首）；[volume] 0..1。
   /// 重复调用先停旧的再起新的。无音频环境（测试/无设备）静默降级为不播放。
   Future<void> start({int trackIndex = -1, double volume = 0.35, String? asset}) async {
     await stop();
+    final gen = _generation;
+    AudioPlayer? player;
     try {
       final tracks = SoundCatalog.bgmTracks;
       var track = (trackIndex >= 0 && trackIndex < tracks.length)
@@ -39,7 +45,9 @@ class BgmPlayer {
           orElse: () => track,
         );
       }
-      final player = AudioPlayer();
+      player = AudioPlayer();
+      // 先登记再 await：期间被 stop()/dispose() 也能停到它。
+      _player = player;
       _stopped = false;
       _paused = false;
       _asset = SoundCatalog.catalog[track.key];
@@ -47,18 +55,29 @@ class BgmPlayer {
       _volume = volume.clamp(0.0, 1.0);
       _completeSub = player.onPlayerComplete.listen((_) => _replayAfterGap());
       await player.setReleaseMode(ReleaseMode.stop);
+      if (_stopped || gen != _generation) await _abandon(player);
       await player.setVolume(_volume);
+      if (_stopped || gen != _generation) await _abandon(player);
       await player.play(AssetSource(_asset!));
-      _player = player;
     } catch (e) {
       debugPrint('BgmPlayer unavailable: $e');
       _stopped = true;
       _paused = false;
       _asset = null;
       _trackName = '';
-      await _player?.dispose();
-      _player = null;
+      await player?.dispose();
+      if (_player == player) _player = null;
     }
+  }
+
+  /// 启动中途被取消：释放半路播放器，不改动新状态。
+  Future<void> _abandon(AudioPlayer player) async {
+    try {
+      await player.dispose();
+    } on Exception {
+      // 已释放则忽略。
+    }
+    if (_player == player) _player = null;
   }
 
   /// 放完歇一秒，从头再放。
@@ -86,6 +105,7 @@ class BgmPlayer {
   }
 
   Future<void> stop() async {
+    _generation++;
     if (_stopped && _player == null) return;
     _stopped = true;
     _paused = false;
