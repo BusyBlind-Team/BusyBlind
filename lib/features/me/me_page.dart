@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/app_store.dart';
 import '../../di.dart';
 import '../../theme.dart';
+import '../report/report_page.dart';
 import '../tutorial/calibration_page.dart';
 
 /// 我（右页）：v0.1 占位页。
@@ -49,6 +51,17 @@ class MePage extends ConsumerWidget {
               MaterialPageRoute<void>(builder: (_) => const CalibrationPage()),
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.auto_awesome, color: AppTheme.gold),
+            title: const Text('修炼报告', style: TextStyle(color: AppTheme.ink)),
+            subtitle: Text(
+              _reportSubtitle(store),
+              style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const ReportPage()),
+            ),
+          ),
           const Divider(color: Color(0x14E8DFC8)),
           ListTile(
             leading: const Icon(Icons.delete_outline, color: AppTheme.inkDim),
@@ -64,6 +77,15 @@ class MePage extends ConsumerWidget {
         ],
       ),
     );
+  }
+
+  /// 报告入口副标题：有报告显示上次时间，否则一句话说明。
+  String _reportSubtitle(AppStore store) {
+    if (store.reports.isEmpty) return '汇总修行统计，请 AI 写一份带禅意的总结';
+    final t = DateTime.tryParse(store.reports.first['generatedAt'] as String? ?? '');
+    if (t == null) return '汇总修行统计，请 AI 写一份带禅意的总结';
+    return '上次报告：${t.month}-${t.day.toString().padLeft(2, '0')} '
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
   }
 
   void _confirmReset(BuildContext context, WidgetRef ref) {

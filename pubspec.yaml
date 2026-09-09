@@ -38,6 +38,7 @@ dependencies:
   path_provider: ^2.1.6
   flutter_riverpod: ^3.4.3
   sensors_plus: ^7.1.0
+  http: ^1.2.2
 
 dev_dependencies:
   flutter_test:

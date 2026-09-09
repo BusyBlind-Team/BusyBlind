@@ -32,6 +32,7 @@
   - 6 瓣：迎春（常见）与 水仙 / 百合（稀有）
   - 8 瓣：莲花（奇珍）
 - **友**：好友修为与成就、交换花瓣——全 app 唯一联网功能，暂未接后端。
+- **我 · 修炼报告（LLM，可选）**：把修行记录聚合成纯数字摘要，交给 OpenAI 兼容大模型（默认智谱 GLM `glm-4-flash`，可切换 DeepSeek / OpenAI / 全自定义），手动生成一份四段式禅意报告（本期概览 / 值得肯定 / 可精进处 / 下期建议），缓存本地最近 10 份。未配 Key 或断网时可一键生成本地模板版。**隐私：只上传聚合统计数字（次数、时长、修为、误差、同步率等），签文文本与逐次记录明细不出本机；API Key 明文存在本地 JSON。**
 
 原则：**修为只来自真实专注**。能挂机、能后台偷跑的口子都视为 bug；宿主按 `meritBase×3` 统一封顶后单点入账。
 
@@ -42,7 +43,7 @@
 - **Flutter SDK** ≥ 3.47（stable；开发机装在 `~/development/flutter`，建议把 `~/development/flutter/bin` 加进 `PATH`）
 - **iOS**：Xcode（App Store 完整版）+ CocoaPods（`brew install cocoapods`）
 - **Android**：Android Studio（自带模拟器与 SDK）
-- 无需后端、无需任何 API key：数据全部本地优先，断网时除"加好友"外功能完整
+- 无需后端：数据全部本地优先，断网时除"加好友"外功能完整。修炼报告的 AI 生成是唯一可选联网项（自备 OpenAI 兼容 API Key，不配也能用本地模板版）
 
 ### 首次启动（三步）
 
@@ -74,7 +75,7 @@ flutter run --release              # release 模式（音视频时序更真实�
 ### 测试与工具
 
 ```bash
-flutter test                       # 49 个测试（时钟调度 / 六个修行 / 视觉快照 / 本地存储 / widget 冒烟）
+flutter test                       # 69 个测试（时钟调度 / 六个修行 / 视觉快照 / 本地存储 / LLM 报告 / widget 冒烟）
 flutter analyze                    # 静态检查（当前零问题）
 dart run tool/gen_sounds.dart      # 需 FFmpeg；合成 16 个 MP3 音效（正式音效直接替换 assets/sfx/ 同名文件）
 ```
@@ -95,7 +96,8 @@ lib/
   core/audio/        基座一：AudioClock 单一微秒时间源 / EventScheduler 按音频时间预排事件
                      （200ms 提前预约、暂停恢复节奏不乱）/ SoundBank / InputCapture / SessionRecorder
   core/practice/     基座二：修行插件契约（Manifest/Session/Result/Context）+ PracticeHostPage 统一结算收口
-  domain/            修为等级 / 成就 / 花瓣与花 / 签文
+  core/llm/          OpenAI 兼容客户端（修炼报告；默认智谱 GLM，错误映射成一句话）
+  domain/            修为等级 / 成就 / 花瓣与花 / 签文 / 修行统计摘要（报告上传的全部内容）
   data/              AppStore（本地优先 JSON 存储，字段即未来 Drift 表草图）
   shell/ features/   三页签「修/僧/我」+ 僧页四按钮页面 + 教程/校准/修行列表
   practices/         六个修行插件——新增修行 = 加一个文件 + 注册表一行，不动宿主
@@ -120,7 +122,7 @@ tool/gen_sounds.dart FFmpeg 音效合成脚本（分音轨采样率，资产已�
 
 ## 质量与自检
 
-- CI（上方徽章）每次 push 自动跑 `analyze`（零容忍）+ `test`（49 项），并产出 release APK。
+- CI（上方徽章）每次 push 自动跑 `analyze`（零容忍）+ `test`（69 项），并产出 release APK。
 - 2026-09-07 十一轮自检收官：修复真实缺陷 6 处（调度器暂停恢复事件重放 / 返回丢整局结果 / 结算无返回 / 打坐后台计时 / 静坐未满发修为 / 钓花状态机吊死 + 写盘竞态），机制建设 3 项（CI 守门、APK 产物、回归测试），音效资产 4.3MB → 0.45MB（-90%），打 tag `v0.1.0`。逐轮记录见 git log 与 [`docs/已知待办2与修行界面完成报告.md`](docs/已知待办2与修行界面完成报告.md)。
 - 仓库审计与复现证据：[`docs/audits/2026-09-07/`](docs/audits/2026-09-07/README.md)。
 - 待真人验证：真机戴耳机试听木鱼/叮咚起音延迟与循环轨接缝（决定是否升级音频时钟）。

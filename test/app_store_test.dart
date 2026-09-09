@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'package:busy_blind/core/llm/llm_client.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/domain/petals.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -110,6 +111,43 @@ void main() {
       }
       expect(store.sessionCount, 300); // 上限截断
       expect(store.sessions.last['practiceId'], 'wooden_fish');
+    });
+
+    test('LLM 配置：默认智谱 GLM 预设、Key 空；保存后可读回', () {
+      final store = AppStore.inMemory();
+      expect(store.llmConfig.model, 'glm-4-flash');
+      expect(store.llmConfig.baseUrl, LlmPresets.glm.baseUrl);
+      expect(store.llmReady, isFalse); // Key 为空 → 未就绪
+
+      store.saveLlmConfig(LlmPresets.deepseek.copyWith(apiKey: ' sk-x '));
+      expect(store.llmReady, isTrue);
+      expect(store.llmConfig.model, 'deepseek-chat');
+      expect(store.llmConfig.apiKey, ' sk-x '); // 原样保存，裁剪交给 UI 层
+    });
+
+    test('修炼报告：倒序插入、只保留最近 10 份', () {
+      final store = AppStore.inMemory();
+      for (var i = 1; i <= 12; i++) {
+        store.addReport({
+          'generatedAt': '2026-09-0${(i % 9) + 1}T10:00:00',
+          'source': 'llm',
+          'model': 'glm-4-flash',
+          'text': '第 $i 份',
+        });
+      }
+      expect(store.reports.length, AppStore.kMaxReports);
+      expect(store.reports.first['text'], '第 12 份'); // 最新的在最前
+      expect(store.reports.last['text'], '第 3 份'); // 最早的 1、2 份被截掉
+    });
+
+    test('reset 清空 LLM 配置与报告', () {
+      final store = AppStore.inMemory()
+        ..saveLlmConfig(LlmPresets.glm.copyWith(apiKey: 'sk-x'))
+        ..addReport({'generatedAt': '2026-09-09T10:00:00', 'text': 'r'});
+      store.reset();
+      expect(store.llmReady, isFalse);
+      expect(store.llmConfig.model, 'glm-4-flash'); // 回到默认预设
+      expect(store.reports, isEmpty);
     });
   });
 }
