@@ -99,7 +99,7 @@ class AchievementsPage extends ConsumerWidget {
     if (drawn == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('合成了一朵${drawn.name}花（${drawn.rarityLabel}）'),
+        content: Text('合成了一朵${drawn.displayName}（${drawn.rarityLabel}）'),
         backgroundColor: const Color(0xFF2A2620),
       ),
     );

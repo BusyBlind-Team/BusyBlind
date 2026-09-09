@@ -207,7 +207,6 @@ class WoodenFishSession extends PracticeSession {
         : diffSec > 2
         ? '走神了——整体偏慢 ${diffSec.toStringAsFixed(1)} 秒'
         : '节奏守得很稳';
-    final stdMs = ((m['intervalStdUs'] as num?) ?? 0) / 1000.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -228,10 +227,9 @@ class WoodenFishSession extends PracticeSession {
         const SizedBox(height: 16),
         _Row(label: '敲响', value: '${m['strikes']} / $_totalStrikes 声'),
         _Row(label: '总用时', value: '${(totalMs / 1000).toStringAsFixed(1)} 秒'),
-        _Row(label: '稳定性（间隔标准差）', value: '${stdMs.toStringAsFixed(0)} ms'),
+        _Row(label: '偏移', value: '${diffSec.abs().toStringAsFixed(1)} 秒'),
         _Row(label: '心急段', value: '${m['rushCount']} 次'),
         _Row(label: '走神段', value: '${m['driftCount']} 次'),
-        _Row(label: '完成质量', value: '${(r.quality * 100).toStringAsFixed(0)} 分'),
       ],
     );
   }
