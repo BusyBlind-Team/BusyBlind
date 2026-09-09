@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -79,20 +78,19 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     final recorder = SessionRecorder(() => scheduler.nowUs());
     scheduler = EventScheduler(clock, sounds, recorder: recorder);
 
-    // 背景音乐设置（首页"乐"入口）：本局固定一首，BGM 与两个循环
-    // 环境音（数雨/听潮）对应替换为同一首。
+    // 背景音乐设置（首页"乐"入口）：选了曲目则本局固定一首，BGM 与
+    // 两个循环环境音（数雨/听潮）对应替换为同一首；选"无"则不播 BGM、
+    // 环境音回退各自的默认音效。
     final store = ref.read(storeProvider);
-    final tracks = SoundCatalog.bgmTracks;
-    final resolved = (store.bgmTrackIndex >= 0 &&
-            store.bgmTrackIndex < tracks.length)
-        ? tracks[store.bgmTrackIndex]
-        : tracks[Random().nextInt(tracks.length)];
+    final resolved = SoundCatalog.resolveTrack(store.bgmTrackIndex);
     final params = {
       ...widget.params,
-      'bgmAsset': SoundCatalog.catalog[resolved.key],
-      'bgmVolume': store.bgmVolume,
-      'ambientKey': resolved.key,
-      'ambientVolume': store.bgmVolume,
+      if (resolved != null) ...{
+        'bgmAsset': SoundCatalog.catalog[resolved.key],
+        'bgmVolume': store.bgmVolume,
+        'ambientKey': resolved.key,
+        'ambientVolume': store.bgmVolume,
+      },
     };
 
     final ctx = PracticeContext(
@@ -149,10 +147,12 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     _session.start();
     // 声音语言：磬一声 = 开始 / 请闭眼。
     ref.read(soundBankProvider).play(SoundCatalog.chimeKey);
-    // 修行 BGM：本局解析好的那首，放完隔一秒循环。
+    // 修行 BGM：本局解析好的那首（"无"设置下不启动），放完隔一秒循环。
+    final bgmAsset = _ctx?.params['bgmAsset'] as String?;
+    if (bgmAsset == null) return;
     _bgm
         .start(
-          asset: _ctx?.params['bgmAsset'] as String?,
+          asset: bgmAsset,
           volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
         )
         .then((_) {

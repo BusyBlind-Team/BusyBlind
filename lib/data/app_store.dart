@@ -130,7 +130,7 @@ class AppStore extends ChangeNotifier {
     // 登录天数（成就：刹那/禅七/……）与各修行首次教程已读标记。
     'login': data['login'] ?? {'count': 0, 'lastDate': ''},
     'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
-    // 背景音乐设置：track = 曲目索引（-1 = 随机），volume = 0..1。
+    // 背景音乐设置：track = -2 无 / -1 随机 / 0..4 固定曲目；volume = 0..1。
     'bgm': data['bgm'] ?? {'track': -1, 'volume': 0.35},
     // 各服务商（按 baseUrl）分别保存的 API Key，避免切换服务商串密钥。
     'llmKeys': data['llmKeys'] ?? <String, String>{},
@@ -403,7 +403,7 @@ class AppStore extends ChangeNotifier {
 
   // ---- 背景音乐设置（首页"乐"入口：音量 + 曲目，2 个循环环境音对应替换）----
 
-  /// -1 = 每次修行随机选曲；0..4 = 固定选 SoundCatalog.bgmTracks[i]。
+  /// -2 = 无背景音乐；-1 = 每次修行随机选曲；0..4 = 固定选 bgmTracks[i]。
   int get bgmTrackIndex => (_data['bgm']! as Map)['track']! as int;
 
   double get bgmVolume =>

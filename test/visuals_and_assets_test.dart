@@ -256,4 +256,21 @@ void main() {
     expect(manifest, contains('android.permission.INTERNET'));
   });
 
+  test('BGM 曲目解析：无 → null，随机 → 有效曲目，固定 → 对应曲目', () {
+    expect(SoundCatalog.resolveTrack(SoundCatalog.bgmTrackNone), isNull);
+    final randomPick = SoundCatalog.resolveTrack(SoundCatalog.bgmTrackRandom);
+    expect(randomPick, isNotNull);
+    expect(
+      SoundCatalog.bgmTracks.contains(randomPick),
+      isTrue,
+      reason: '随机结果必须是曲目表里的一首',
+    );
+    expect(
+      SoundCatalog.resolveTrack(2)?.name,
+      SoundCatalog.bgmTracks[2].name,
+    );
+    // 越界设置按随机处理，不会崩。
+    expect(SoundCatalog.resolveTrack(99), isNotNull);
+  });
+
 }

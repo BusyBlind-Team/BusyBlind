@@ -59,16 +59,25 @@ class _BgmSettingsPageState extends ConsumerState<BgmSettingsPage> {
           const SizedBox(height: 8),
           _TrackRow(
             label: '随机（每次修行抽一首）',
-            selected: track == -1,
-            onTap: () =>
-                ref.read(storeProvider).setBgmSettings(track: -1),
+            selected: track == SoundCatalog.bgmTrackRandom,
+            onTap: () => ref
+                .read(storeProvider)
+                .setBgmSettings(track: SoundCatalog.bgmTrackRandom),
+          ),
+          _TrackRow(
+            label: '无（不播背景音乐）',
+            selected: track == SoundCatalog.bgmTrackNone,
+            onTap: () => ref
+                .read(storeProvider)
+                .setBgmSettings(track: SoundCatalog.bgmTrackNone),
           ),
           for (var i = 0; i < SoundCatalog.bgmTracks.length; i++)
             _TrackRow(
               label: SoundCatalog.bgmTracks[i].name,
               selected: track == i,
-              onTap: () =>
-                  ref.read(storeProvider).setBgmSettings(track: i),
+              onTap: () => ref
+                  .read(storeProvider)
+                  .setBgmSettings(track: i),
             ),
           const SizedBox(height: 24),
           const Text(
