@@ -1,8 +1,19 @@
 import 'dart:math';
+import 'dart:io';
 
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/domain/petals.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+
+class _TestPathProvider extends PathProviderPlatform {
+  _TestPathProvider(this.path);
+
+  final String path;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => path;
+}
 
 void main() {
   group('AppStore（本地优先数据层）', () {
@@ -110,6 +121,78 @@ void main() {
       }
       expect(store.sessionCount, 300); // 上限截断
       expect(store.sessions.last['practiceId'], 'wooden_fish');
+    });
+
+    test('主存档损坏时从备份恢复并保留损坏文件', () async {
+      final dir = await Directory.systemTemp.createTemp('busy-blind-store-');
+      final previous = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = _TestPathProvider(dir.path);
+      try {
+        final primary = File('${dir.path}/busy_blind.json');
+        await primary.writeAsString('{"merit":1000,"sessions":[');
+        await File('${dir.path}/busy_blind.json.bak').writeAsString('{"merit":42}');
+
+        final store = await AppStore.load();
+
+        expect(store.merit, 42);
+        expect(store.persistenceError, contains('备份恢复'));
+        expect(await primary.exists(), isFalse);
+        // 恢复后尚未产生新保存，再次启动仍必须读取备份。
+        final reopened = await AppStore.load();
+        expect(reopened.merit, 42);
+        reopened.addMerit(1);
+        expect(await reopened.waitForSave(), isTrue);
+        expect((await AppStore.load()).merit, 43);
+        expect(
+          (await dir.list().toList()).any((entry) => entry.path.contains('.corrupt-')),
+          isTrue,
+        );
+      } finally {
+        PathProviderPlatform.instance = previous;
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('保存保留备份，并允许调用方等待结果', () async {
+      final dir = await Directory.systemTemp.createTemp('busy-blind-store-');
+      final previous = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = _TestPathProvider(dir.path);
+      try {
+        final primary = File('${dir.path}/busy_blind.json');
+        await primary.writeAsString('{"merit":10}');
+        final store = await AppStore.load();
+        store.addMerit(5);
+
+        expect(await store.waitForSave(), isTrue);
+        expect((await primary.readAsString()), contains('"merit":15'));
+        expect(
+          (await File('${dir.path}/busy_blind.json.bak').readAsString()),
+          contains('"merit":10'),
+        );
+      } finally {
+        PathProviderPlatform.instance = previous;
+        await dir.delete(recursive: true);
+      }
+    });
+
+    test('无有效备份时阻止新账户覆盖损坏存档', () async {
+      final dir = await Directory.systemTemp.createTemp('busy-blind-store-');
+      final previous = PathProviderPlatform.instance;
+      PathProviderPlatform.instance = _TestPathProvider(dir.path);
+      try {
+        final primary = File('${dir.path}/busy_blind.json');
+        const corrupted = '{"merit":1000,"sessions":[';
+        await primary.writeAsString(corrupted);
+        final store = await AppStore.load();
+        store.addMerit(1);
+
+        expect(store.persistenceError, contains('未自动覆盖'));
+        expect(await store.waitForSave(), isFalse);
+        expect(await primary.readAsString(), corrupted);
+      } finally {
+        PathProviderPlatform.instance = previous;
+        await dir.delete(recursive: true);
+      }
     });
   });
 }
