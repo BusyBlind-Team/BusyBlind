@@ -6,8 +6,8 @@ import 'package:flutter/foundation.dart';
 
 import 'sound_catalog.dart';
 
-/// 修行 BGM（改进列表）：开始修行时从五首里随机挑一首，
-/// 放完等待一秒从头再放；结束修行或退后台时暂停/停止。
+/// 修行 BGM（改进列表）：开始修行时按设置播一首（可随机/固定/无），
+/// 放完等待一秒从头再放；结束修行时停止，退后台时暂停、回前台恢复。
 class BgmPlayer {
   BgmPlayer();
 
@@ -15,6 +15,10 @@ class BgmPlayer {
   String? _asset;
   bool _stopped = true;
   bool _paused = false;
+
+  /// 启动期间退到后台：播放器完成准备但不发声，标记待播，
+  /// resume() 时从头播放（复审 P2：区分暂停与停止，保留可恢复状态）。
+  bool _pendingPlay = false;
 
   /// 当前曲名（空串 = 未在播放）。
   String _trackName = '';
@@ -50,31 +54,38 @@ class BgmPlayer {
       _player = player;
       _stopped = false;
       _paused = false;
+      _pendingPlay = false;
       _asset = SoundCatalog.catalog[track.key];
       _trackName = track.name;
       _volume = volume.clamp(0.0, 1.0);
       _completeSub = player.onPlayerComplete.listen((_) => _replayAfterGap());
       await player.setReleaseMode(ReleaseMode.stop);
-      // 取消（停止/暂停/换代）→ 释放半路播放器并立即退出启动流程，
-      // 不得再操作已释放的播放器（复审 P2 ×2）。
-      if (_stopped || _paused || gen != _generation) {
+      // 停止/换代 → 释放半路播放器并立即退出启动流程，
+      // 不得再操作已释放的播放器（复审 P2-3）。
+      if (_stopped || gen != _generation) {
         await _abandon(player);
         return;
       }
       await player.setVolume(_volume);
-      if (_stopped || _paused || gen != _generation) {
+      if (_stopped || gen != _generation) {
         await _abandon(player);
         return;
       }
-      await player.play(AssetSource(_asset!));
-      // play 期间退到后台的：启动完成后立即补暂停。
-      if (!_stopped && gen == _generation && _paused) {
-        await player.pause();
+      if (_paused) {
+        // 启动期间已退到后台：完成准备但不发声，resume() 时从头播放。
+        _pendingPlay = true;
+      } else {
+        await player.play(AssetSource(_asset!));
+        // play 期间退到后台的：启动完成后立即补暂停。
+        if (_paused && !_stopped && gen == _generation) {
+          await player.pause();
+        }
       }
     } catch (e) {
       debugPrint('BgmPlayer unavailable: $e');
       _stopped = true;
       _paused = false;
+      _pendingPlay = false;
       _asset = null;
       _trackName = '';
       await player?.dispose();
@@ -92,11 +103,15 @@ class BgmPlayer {
     if (_player == player) _player = null;
   }
 
-  /// 放完歇一秒，从头再放。
+  /// 放完歇一秒，从头再放；歇的期间退后台 → 标记待播，恢复时再放。
   Future<void> _replayAfterGap() async {
     if (_stopped) return;
     await Future<void>.delayed(const Duration(seconds: 1));
-    if (_stopped || _paused) return;
+    if (_stopped) return;
+    if (_paused) {
+      _pendingPlay = true;
+      return;
+    }
     try {
       await _player?.play(AssetSource(_asset!));
     } on Exception {
@@ -113,6 +128,16 @@ class BgmPlayer {
   Future<void> resume() async {
     if (_stopped || !_paused) return;
     _paused = false;
+    if (_pendingPlay) {
+      // 启动期间被挂起的首次播放。
+      _pendingPlay = false;
+      try {
+        await _player?.play(AssetSource(_asset!));
+      } on Exception {
+        // 播放器已被释放（页面退出竞态），静默结束。
+      }
+      return;
+    }
     await _player?.resume();
   }
 
@@ -121,6 +146,7 @@ class BgmPlayer {
     if (_stopped && _player == null) return;
     _stopped = true;
     _paused = false;
+    _pendingPlay = false;
     _trackName = '';
     _completeSub?.cancel();
     _completeSub = null;

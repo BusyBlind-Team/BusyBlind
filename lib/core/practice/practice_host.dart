@@ -148,19 +148,22 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 声音语言：磬一声 = 开始 / 请闭眼。
     ref.read(soundBankProvider).play(SoundCatalog.chimeKey);
     // 修行 BGM：本局解析好的那首（"无"设置下不启动），放完隔一秒循环。
+    // 只跳过音乐启动，绝不影响开始流程（复审 P1：此前 return 吞掉了
+    // _running 置位，选"无"会卡在开始界面）。
     final bgmAsset = _ctx?.params['bgmAsset'] as String?;
-    if (bgmAsset == null) return;
-    _bgm
-        .start(
-          asset: bgmAsset,
-          volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
-        )
-        .then((_) {
-      if (mounted && _running) {
-        setState(() => _bgmName = _bgm.trackName);
-        _bgmSpin.repeat();
-      }
-    });
+    if (bgmAsset != null) {
+      _bgm
+          .start(
+            asset: bgmAsset,
+            volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
+          )
+          .then((_) {
+        if (mounted && _running) {
+          setState(() => _bgmName = _bgm.trackName);
+          _bgmSpin.repeat();
+        }
+      });
+    }
     setState(() => _running = true);
   }
 

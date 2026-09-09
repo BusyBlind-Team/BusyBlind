@@ -140,6 +140,23 @@ void main() {
     expect(store.isUnlocked('meditation_1'), isFalse);
   });
 
+  testWidgets('背景音乐选"无"：修行仍正常开始（复审 P1）', (tester) async {
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('wooden_fish')
+      ..setBgmSettings(track: -2); // 无背景音乐
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+
+    // 点开始后必须真正进入运行态（退出按钮可见），而不是停在开始界面。
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(find.text('退出'), findsOneWidget);
+    expect(find.text('开始'), findsNothing);
+    expect(find.textContaining('木 鱼'), findsOneWidget);
+  });
+
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {
     final store = AppStore.inMemory();
     await tester.pumpWidget(harness(home: const SignPage(), store: store));
