@@ -55,10 +55,22 @@ class BgmPlayer {
       _volume = volume.clamp(0.0, 1.0);
       _completeSub = player.onPlayerComplete.listen((_) => _replayAfterGap());
       await player.setReleaseMode(ReleaseMode.stop);
-      if (_stopped || gen != _generation) await _abandon(player);
+      // 取消（停止/暂停/换代）→ 释放半路播放器并立即退出启动流程，
+      // 不得再操作已释放的播放器（复审 P2 ×2）。
+      if (_stopped || _paused || gen != _generation) {
+        await _abandon(player);
+        return;
+      }
       await player.setVolume(_volume);
-      if (_stopped || gen != _generation) await _abandon(player);
+      if (_stopped || _paused || gen != _generation) {
+        await _abandon(player);
+        return;
+      }
       await player.play(AssetSource(_asset!));
+      // play 期间退到后台的：启动完成后立即补暂停。
+      if (!_stopped && gen == _generation && _paused) {
+        await player.pause();
+      }
     } catch (e) {
       debugPrint('BgmPlayer unavailable: $e');
       _stopped = true;
