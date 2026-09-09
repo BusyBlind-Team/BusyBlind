@@ -19,7 +19,7 @@ Widget tutorialHarness(
 }) {
   return ProviderScope(
     overrides: [
-      storeProvider.overrideWithValue(store),
+      storeProvider.overrideWith((ref) => store),
       soundBankProvider.overrideWithValue(sounds ?? SilentSoundBank()),
       clockProvider.overrideWithValue(clock ?? FakeClock()),
     ],
@@ -42,7 +42,7 @@ Widget calibrationHarness(
 ) {
   return ProviderScope(
     overrides: [
-      storeProvider.overrideWithValue(store),
+      storeProvider.overrideWith((ref) => store),
       soundBankProvider.overrideWithValue(sounds),
       clockProvider.overrideWithValue(clock),
     ],
