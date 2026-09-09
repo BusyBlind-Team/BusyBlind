@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../core/llm/llm_client.dart';
 import '../domain/petals.dart';
 
 /// 本地优先的数据层（设计方案原则 4）。
@@ -107,6 +108,14 @@ class AppStore extends ChangeNotifier {
     'pendingMerit': data['pendingMerit'] ?? <Object?>[],
     'sessions': data['sessions'] ?? <Object?>[],
     'lUserUs': data['lUserUs'] ?? 0,
+    // LLM 连接配置（默认智谱 GLM 预设、Key 留空）与已生成的修炼报告。
+    'llm': data['llm'] ??
+        {
+          'baseUrl': LlmPresets.glm.baseUrl,
+          'model': LlmPresets.glm.model,
+          'apiKey': '',
+        },
+    'reports': data['reports'] ?? <Object?>[],
   };
 
   // ---- 首启教程 ----
@@ -282,13 +291,14 @@ class AppStore extends ChangeNotifier {
     required bool completed,
     required int durationMs,
     Map<String, Object?> metrics = const {},
+    @visibleForTesting String? date,
   }) {
     (_data['sessions']! as List).add({
       'practiceId': practiceId,
       'merit': merit,
       'completed': completed,
       'durationMs': durationMs,
-      'date': _today,
+      'date': date ?? _today,
       'metrics': metrics,
     });
     final list = _data['sessions']! as List;
@@ -298,6 +308,45 @@ class AppStore extends ChangeNotifier {
     _save();
     notifyListeners();
   }
+
+  // ---- LLM 配置与修炼报告 ----
+
+  LlmConfig get llmConfig {
+    final m = _data['llm']! as Map;
+    return LlmConfig(
+      baseUrl: m['baseUrl'] as String? ?? '',
+      model: m['model'] as String? ?? '',
+      apiKey: m['apiKey'] as String? ?? '',
+    );
+  }
+
+  bool get llmReady => llmConfig.apiKey.trim().isNotEmpty;
+
+  void saveLlmConfig(LlmConfig config) {
+    _data['llm'] = {
+      'baseUrl': config.baseUrl,
+      'model': config.model,
+      'apiKey': config.apiKey,
+    };
+    _save();
+    notifyListeners();
+  }
+
+  List<Map<String, Object?>> get reports =>
+      (_data['reports']! as List).cast<Map<String, Object?>>();
+
+  /// 收入一份报告（倒序插入），只保留最近 [kMaxReports] 份。
+  void addReport(Map<String, Object?> report) {
+    (_data['reports']! as List).insert(0, report);
+    final list = _data['reports']! as List;
+    if (list.length > kMaxReports) {
+      list.removeRange(kMaxReports, list.length);
+    }
+    _save();
+    notifyListeners();
+  }
+
+  static const int kMaxReports = 10;
 
   // ---- 校准 ----
 
