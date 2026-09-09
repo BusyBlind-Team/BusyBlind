@@ -17,11 +17,14 @@ class BgmSettingsPage extends ConsumerStatefulWidget {
 }
 
 class _BgmSettingsPageState extends ConsumerState<BgmSettingsPage> {
+  /// 拖动中的临时音量：拖动过程只改本地，松手（onChangeEnd）才落盘。
+  double? _dragVolume;
+
   @override
   Widget build(BuildContext context) {
     final store = ref.watch(storeProvider);
     final track = store.bgmTrackIndex;
-    final volume = store.bgmVolume;
+    final volume = _dragVolume ?? store.bgmVolume;
 
     return Scaffold(
       appBar: AppBar(title: const Text('音乐与音效')),
@@ -39,8 +42,12 @@ class _BgmSettingsPageState extends ConsumerState<BgmSettingsPage> {
           ),
           Slider(
             value: volume,
-            onChanged: (v) =>
-                ref.read(storeProvider).setBgmSettings(volume: v),
+            // 拖动过程只更新本地预览，松手才写存储（第 12 轮自检）。
+            onChanged: (v) => setState(() => _dragVolume = v),
+            onChangeEnd: (v) {
+              ref.read(storeProvider).setBgmSettings(volume: v);
+              setState(() => _dragVolume = null);
+            },
           ),
           Text(
             '${(volume * 100).round()}% —— 修行背景音乐与数雨/听潮的环境声',

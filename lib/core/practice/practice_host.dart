@@ -222,6 +222,21 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     if (result.note == 'sleep_mode') {
       // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
       store.queuePendingMerit(merit);
+      // 成就评估不能跳过，否则听潮相关成就要等下次启动才追认
+      //（第 13 轮自检：潮涌潮落/天地吐息/水之呼吸/立刻抢救）。
+      store.unlockAchievements(
+        kAchievements
+            .where(
+              (a) => a.test(
+                AchievementEval(
+                  store: store,
+                  lastResult: result,
+                  lastManifest: _session.manifest,
+                ),
+              ),
+            )
+            .map((a) => a.id),
+      );
       try {
         await sounds.stopLoop(SoundCatalog.tideLoopKey);
       } on Exception {

@@ -32,7 +32,7 @@ class CrossRiverSession extends PracticeSession {
   CrossRiverSession({Random? rng}) : _rng = rng ?? Random();
 
   int _jumpNo = 0; // 已上石阶数（成功+踩滑）
-  int _difficultySteps = 0; // 仅精确踏稳的石阶推进难度。
+  int _difficultySteps = 0; // 仅精确踏稳的石阶推进难度（踩滑不递进）。
   int _lastExpandedAt = 0;
   int _loUs = _minTUs;
   int _hiUs = _maxTUs;
