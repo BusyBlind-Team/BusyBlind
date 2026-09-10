@@ -21,9 +21,6 @@ class FakeClock implements AudioClock {
   int outputLatencyUs = 0;
 
   @override
-  int userOffsetUs = 0;
-
-  @override
   Stream<int> beats(int periodUs) => const Stream<int>.empty();
 
   @override

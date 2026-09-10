@@ -10,21 +10,33 @@ import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
 import '../widgets/practice_scene.dart';
 
-/// 过河（专注 · 节奏复现）。
+/// 过河（专注 · 节奏复现）——编号音色版（Bug 描述 #8）。
 ///
-/// 每一跳：先播"叮——咚"，间隔 T 随机取 0.6–2.0 秒；用户长按屏幕，
-/// 在自认为 T 之后松开。起手口径：按下时刻不作硬判定（以"咚"为计时
-/// 锚点），硬判定只有"松手时刻 − 咚时刻 ≈ T"。
-/// 判定窗口 max(T×15%, 180ms)；窗口 1.5 倍内 = 踩滑（不死，难度不递进）；
-/// 超出 = 失败结束。每 5 跳扩大 T 范围并引入"叮-咚-咚"变奏（复现第二段间隔）。
-/// 修为（待对齐清单 #5）：每跳一次得分 = 100 × (1 − 偏移率)，偏移率 =
-/// |松手偏差| / T；结束后修为 = 总分 / 100（四舍五入）。判定一律用音频
-/// 时间戳，不用墙钟。
+/// 每轮：系统播"引导音 a → 间隔 T → b"，用户随后按下屏幕（响起跟随音 c）
+/// 并在自认为 T 之后松开（响起跟随音 d）。按下→松手的间隔复现引导的 T。
+/// 6 轮一循环的固定序列（1..12 再折返），见 [_rounds]。
+/// 判定：以两段音"开始播放的一刻"为锚（引导按调度时刻、跟随按按下/
+/// 松手时刻——都是发声起点而非播完时刻）；因音频存在播放延迟，
+/// 窗口在 max(T×15%, 180ms) 基础上放宽 [_latencyGraceUs]。
+/// 窗口 1.5 倍内 = 踩滑（不死，难度不递进）；超出 = 失败结束。
+/// 修为：每轮得分 = 100 × (1 − 偏移率)，结束后修为 = 总分 / 100。
 class CrossRiverSession extends PracticeSession {
   static const int _minTUs = 600000;
   static const int _maxTUs = 2000000;
-  static const int _pressLeadUs = 500000; // 叮之前留白
-  static const int _missGuardUs = 6000000; // 长按无松手 → 失败
+  static const int _guideLeadUs = 500000; // 引导音之前留白
+  static const int _missGuardUs = 6000000; // 引导结束仍不起手 → 失败
+  static const int _latencyGraceUs = 250000; // 音频播放延迟补偿（Bug 描述 #8）
+
+  /// 6 轮一循环的编号音序列：(引导a, 引导b, 跟随c, 跟随d)。
+  /// 1→12 递增三轮，12 处折返递减三轮，第 6 轮后回到第 1 轮。
+  static const List<(int, int, int, int)> _rounds = [
+    (1, 2, 3, 4),
+    (5, 6, 7, 8),
+    (9, 10, 11, 12),
+    (12, 11, 10, 9),
+    (8, 7, 6, 5),
+    (4, 3, 2, 1),
+  ];
 
   late PracticeContext _ctx;
   final Random _rng;
@@ -32,37 +44,34 @@ class CrossRiverSession extends PracticeSession {
   CrossRiverSession({Random? rng}) : _rng = rng ?? Random();
 
   int _jumpNo = 0; // 已上石阶数（成功+踩滑）
-  int _difficultySteps = 0; // 仅精确踏稳的石阶推进难度（踩滑不递进）。
+  int _difficultySteps = 0; // 仅精确踏稳的轮次推进难度（踩滑不递进）。
   int _lastExpandedAt = 0;
   int _loUs = _minTUs;
   int _hiUs = _maxTUs;
-  bool _variation = false; // 本跳是否为 叮-咚-咚
-  int _t1Us = 0;
-  int _t2Us = 0;
-  int _dongAnchorUs = 0; // 咚的调度时刻（会话时间轴）
-  bool _awaitingSecondSegment = false;
-  int _jumpId = 0; // 守门回调按跳跃 id 失效，防陈旧守门影响后续跳跃
 
-  // 本跳输入轨迹。
+  (int, int, int, int) _roundSounds = _rounds.first;
+  int _tUs = 0; // 本轮引导间隔（跟随需复现的目标）
+  int _guideEndUs = 0; // 引导音 b 的调度时刻（此刻起接受起手）
+  int _jumpId = 0; // 守门回调按轮次 id 失效
+
+  // 本轮输入。
   bool _pressed = false;
-  int? _pressSessionUs; // 本次按下的会话时刻（新改进意见：松手判定以其为锚）
+  int? _pressSessionUs; // 按下时刻 = 跟随音 c 的发声起点
   final List<int> _releaseDeviationsUs = [];
-  double _scoreTotal = 0; // 待对齐清单 #5：每跳 100×(1−偏移率) 累计
+  double _scoreTotal = 0; // 每轮 100×(1−偏移率) 累计
 
   bool _finished = false;
-  String _hudText = '听 叮 咚 · 复 现 间 隔';
+  String _hudText = '听引导音 · 复现间隔';
 
   // ---- 测试钩子 ----
   @visibleForTesting
   int get jumpNo => _jumpNo;
   @visibleForTesting
-  int get t1Us => _t1Us;
+  int get tUs => _tUs;
   @visibleForTesting
-  int get t2Us => _t2Us;
+  int get guideEndUs => _guideEndUs;
   @visibleForTesting
-  int get dongAnchorUs => _dongAnchorUs;
-  @visibleForTesting
-  bool get variation => _variation;
+  (int, int, int, int) get roundSounds => _roundSounds;
   @visibleForTesting
   bool get finished => _finished;
 
@@ -77,7 +86,8 @@ class CrossRiverSession extends PracticeSession {
     meritBase: 20,
     iconKey: 'cross_river',
     rulesText:
-        '每一步会响起"叮——咚"。用长按把这个间隔在心里复现出来：\n听到叮预备，咚响起时按下，自认为到了间隔就松开。\n'
+        '师傅先敲出一段引导音，间隔是他的一步。\n随后由你跟随：按下时响起第一个音，'
+        '自认为到了间隔就松开，第二个音随之响起。\n12 个音色六轮一循环，周而复始。\n'
         '踩滑不会落水，但难度不再递进；差得远，就掉进河里了。',
     introTags: '趣味·节奏',
     intro: '闭上眼也能玩的跳一跳。跟随师傅的脚步声，在河上的木桩间跳跃吧。想想那冰冷的河水，果然还是得认真起来了。',
@@ -96,7 +106,7 @@ class CrossRiverSession extends PracticeSession {
   void _nextJump() {
     _jumpNo++;
     _jumpId++;
-    // 每 5 次踏稳：T 范围扩大。踩滑仍能继续，但不应让下一跳更难。
+    // 每 5 次踏稳：T 范围扩大。踩滑仍能继续，但不应让下一轮更难。
     if (_difficultySteps > 0 &&
         _difficultySteps % 5 == 0 &&
         _lastExpandedAt != _difficultySteps) {
@@ -104,61 +114,46 @@ class CrossRiverSession extends PracticeSession {
       _hiUs = min((_hiUs * 1.15).round(), 4000000);
       _lastExpandedAt = _difficultySteps;
     }
-    _variation = _difficultySteps >= 10 && _rng.nextBool();
-    _t1Us = _loUs + _rng.nextInt(_hiUs - _loUs);
-    _t2Us = _loUs + _rng.nextInt(_hiUs - _loUs);
+    _roundSounds = _rounds[(_jumpNo - 1) % _rounds.length];
+    _tUs = _loUs + _rng.nextInt(_hiUs - _loUs);
 
-    final t0 = _ctx.scheduler.nowUs() + _pressLeadUs;
-    _ctx.scheduler.scheduleSound(t0, SoundCatalog.heDingKey, gain: 0.9);
-    _ctx.scheduler.scheduleSound(t0 + _t1Us, SoundCatalog.heDongKey, gain: 0.9);
-    if (_variation) {
-      _ctx.scheduler.scheduleSound(
-        t0 + _t1Us + _t2Us,
-        SoundCatalog.heDongKey,
-        gain: 0.8,
-      );
-    }
+    final (guideA, guideB, _, _) = _roundSounds;
+    final t0 = _ctx.scheduler.nowUs() + _guideLeadUs;
+    _ctx.scheduler.scheduleSound(t0, SoundCatalog.riverSoundKey(guideA), gain: 0.9);
+    _ctx.scheduler.scheduleSound(
+      t0 + _tUs,
+      SoundCatalog.riverSoundKey(guideB),
+      gain: 0.9,
+    );
 
-    // 咚的实际调度时刻为计时锚点（判定只对齐它）。
-    _dongAnchorUs = t0 + _t1Us;
-    _awaitingSecondSegment = false;
+    _guideEndUs = t0 + _tUs;
     _pressed = false;
 
-    _hudText = '第 $_jumpNo 步${_variation ? ' · 叮-咚-咚' : ''}';
+    _hudText = '第 $_jumpNo 步 · 第 ${(_jumpNo - 1) % _rounds.length + 1} 轮';
     notifyVisualChanged();
-    // 守门：若本跳迟迟未完成，按失败收口（只对本跳生效）。
-    final guard = t0 + _t1Us + (_variation ? _t2Us : 0) + _missGuardUs;
+    // 守门：本轮到点仍未完成（一直不起手，或起手后迟迟不松手）判失败。
+    // 完成本轮会推进 _jumpId，陈旧守门自动失效。
+    final guard = _guideEndUs + _missGuardUs;
     final id = _jumpId;
     _ctx.scheduler.scheduleCallback(guard, () {
-      if (id == _jumpId) _onMiss();
+      if (id == _jumpId) _fail();
     });
   }
 
-  void _onMiss() {
-    if (_finished) return;
-    // 按着不放（或变奏第二段迟迟不起手）超时：判为失败。
-    if (_pressed || _awaitingSecondSegment) {
-      _fail();
-    }
-  }
-
-  int _windowFor(int segmentTUs) => max((segmentTUs * 0.15).round(), 180000);
+  /// 判定窗口：基础窗口 + 音频播放延迟补偿（Bug 描述 #8：放宽，不过轻易判负）。
+  int _windowFor(int tUs) =>
+      max((tUs * 0.15).round(), 180000) + _latencyGraceUs;
 
   void _judgeRelease(int releaseUs) {
-    final t = _awaitingSecondSegment ? _t2Us : _t1Us;
-    final anchor = _awaitingSecondSegment
-        ? _dongAnchorUs + _t1Us
-        : _dongAnchorUs;
-    // 判定锚 = 咚的发声瞬间；但按点晚于咚的用户，以自己的按点为锚——
-    // 按住→松手的间隔由用户内心计数，按点与松手点共享同一份设备音频
-    // 延迟与反应差，二者相减后互相抵消，判定点落在"咚发声的一瞬间"。
-    final refBase = max(anchor, _pressSessionUs ?? anchor);
-    final dev = releaseUs - refBase - t;
+    // 判定锚 = 两段跟随音"开始播放的一刻"：c 在按下瞬间起播，d 在松手
+    // 瞬间起播（Bug 描述 #8）。按下与松手共享同一份设备输出延迟，
+    // 相减后互相抵消，偏差即 |复现间隔 − 引导间隔|。
+    final dev = releaseUs - (_pressSessionUs ?? releaseUs) - _tUs;
     _releaseDeviationsUs.add(dev);
-    // 待对齐清单 #5：本跳得分 = 100 × (1 − 偏移率)，偏移率上限 1（落水那跳得 0 分起）。
-    final devRate = (dev.abs() / t).clamp(0.0, 1.0);
+    // 每轮得分 = 100 × (1 − 偏移率)，偏移率上限 1。
+    final devRate = (dev.abs() / _tUs).clamp(0.0, 1.0);
     _scoreTotal += 100 * (1 - devRate);
-    final w = _windowFor(t);
+    final w = _windowFor(_tUs);
 
     if (dev.abs() <= w) {
       _onStepped(slip: false);
@@ -170,13 +165,6 @@ class CrossRiverSession extends PracticeSession {
   }
 
   void _onStepped({required bool slip}) {
-    if (_variation && !_awaitingSecondSegment) {
-      // 变奏第一段通过：等待第二段复现。
-      _awaitingSecondSegment = true;
-      _hudText = '第 $_jumpNo 步 · 还有第二段';
-      notifyVisualChanged();
-      return;
-    }
     if (!slip) _difficultySteps++;
     _nextJump();
   }
@@ -185,7 +173,6 @@ class CrossRiverSession extends PracticeSession {
     if (_finished) return;
     _hudText = '一念偏了 · 落入水中';
     notifyVisualChanged();
-    _ctx.sounds.play(SoundCatalog.heDongKey, gain: 0.5);
     _ctx.requestFinish(FinishReason.completed);
   }
 
@@ -194,14 +181,20 @@ class CrossRiverSession extends PracticeSession {
     if (_finished) return;
     switch (e.phase) {
       case PointerPhase.down:
+        // 引导未播完不起手（起手过早只留痕，不触发跟随音）。
+        if (_ctx.scheduler.nowUs() < _guideEndUs) {
+          _ctx.recorder.log('input:earlyPress', {'at': e.sessionUs});
+          return;
+        }
         _pressed = true;
         _pressSessionUs = e.sessionUs;
         notifyVisualChanged();
-        // 起手早晚不作硬判定，只计入曲线。
-        _ctx.recorder.log('input:press', {
-          'at': e.sessionUs,
-          'leadMs': (e.sessionUs - _dongAnchorUs) ~/ 1000,
-        });
+        // 跟随音 c：按下瞬间起播（发声起点即计时的一个锚点）。
+        _ctx.sounds.play(
+          SoundCatalog.riverSoundKey(_roundSounds.$3),
+          gain: 0.9,
+        );
+        _ctx.recorder.log('input:press', {'at': e.sessionUs});
       case PointerPhase.move:
         break; // 按住挪动不参与判定。
       case PointerPhase.up:
@@ -210,13 +203,12 @@ class CrossRiverSession extends PracticeSession {
           _pressed = false;
           notifyVisualChanged();
           _ctx.recorder.log('input:release', {'at': e.sessionUs});
-          // 等咚响过才判定（咚没响就松手 = 起手过早，计入曲线但不硬判）。
-          if (e.sessionUs >= _dongAnchorUs) {
-            _judgeRelease(e.sessionUs);
-          } else {
-            _releaseDeviationsUs.add(e.sessionUs - _dongAnchorUs - _t1Us);
-            _fail();
-          }
+          // 跟随音 d：松手瞬间起播，判定同时收口。
+          _ctx.sounds.play(
+            SoundCatalog.riverSoundKey(_roundSounds.$4),
+            gain: 0.9,
+          );
+          _judgeRelease(e.sessionUs);
         }
     }
   }
@@ -235,8 +227,8 @@ class CrossRiverSession extends PracticeSession {
   }
 
   PracticeResult _buildResult(FinishReason r) {
-    final jumps = max(_jumpNo - 1, 0); // 最后一跳落水不计
-    // 待对齐清单 #5：修为 = 总分 / 100（四舍五入，下限 0）。
+    final jumps = max(_jumpNo - 1, 0); // 最后一轮落水不计
+    // 修为 = 总分 / 100（四舍五入，下限 0）。
     final merit = max(_scoreTotal / 100, 0).round();
     final avgDevUs = _releaseDeviationsUs.isEmpty
         ? 0
@@ -266,7 +258,7 @@ class CrossRiverSession extends PracticeSession {
       subtitle: _pressed ? '心中复现 · 到时松手' : _hudText,
       active: _pressed,
       count: _jumpNo,
-      accent: _awaitingSecondSegment ? 1 : 0.45,
+      accent: _pressed ? 1 : 0.45,
     );
   }
 

@@ -160,7 +160,7 @@ void main() {
   });
 
   for (final reduced in [false, true]) {
-    testWidgets('钓花宿主拖动即时更新浮标与击散（减少动态效果=$reduced）', (tester) async {
+    testWidgets('钓花宿主：浮漂固定在抛竿落点，拖动不移杆（减少动态效果=$reduced，Bug 描述 #5）', (tester) async {
       final store = AppStore.inMemory()
         ..markTutorialSeen('fish_petals')
         ..setBgmSettings(track: -2);
@@ -174,28 +174,17 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('开始'));
       await tester.pump();
-      final dynamic pond = tester.allStates.firstWhere(
+      final dynamic pond = (tester.allStates.firstWhere(
         (s) => s.runtimeType.toString() == '_PondLayerState',
-      );
+      ) as dynamic).debugPond;
       final gesture = await tester.startGesture(const Offset(300, 300));
       await tester.pump();
-      expect(pond.debugBuoy, const Offset(300, 300));
+      expect(pond.buoy, const Offset(300, 300));
       for (final target in [const Offset(360, 320), const Offset(420, 340)]) {
-        final before = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
         await gesture.moveTo(target);
-        // 只处理真实通知，不主动重建宿主，也不等待上钩/松手事件。
         await tester.pump();
-        expect(pond.debugBuoy, target);
-        final after = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
-        for (var i = 0; i < before.length; i++) {
-          if (reduced) {
-            expect(after[i].vel, Offset.zero);
-          } else {
-            final radial = before[i].pos - target;
-            final delta = after[i].vel - before[i].vel;
-            expect(delta.dx * radial.dx + delta.dy * radial.dy, greaterThan(0));
-          }
-        }
+        // 浮漂固定在抛竿落点：后续拖动不移杆（Bug 描述 #5）。
+        expect(pond.buoy, const Offset(300, 300));
       }
       await gesture.up();
       await tester.pumpWidget(const SizedBox());

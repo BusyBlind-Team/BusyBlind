@@ -2,18 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/sound_catalog.dart';
-import '../../core/practice/practice_host.dart';
-import '../../data/app_store.dart';
 import '../../di.dart';
-import '../../practices/sit_quiet.dart';
 import '../../shell/app_shell.dart';
 import '../../theme.dart';
-import 'calibration_page.dart';
 
-/// 首启教程（设计方案·八，三段式）：
-/// ① 声音语义表——教一门声音语言，每条可现场试听；
-/// ② 60 秒试玩——复用"静坐"（同时是插件框架验收用例）；
-/// ③ 校准收尾——判定线 5 下取中位数写入 L_user（可跳过，之后在"我"页随时可做）。
+/// 首启教程（两页式，Bug 描述 #3）：
+/// ① 出发提示——建议戴耳机、修行全程可闭眼；
+/// ② 声音语义表——教一门声音语言，每条可现场试听。
+/// （原"先坐一分钟"试玩页与"时机校准"页及其功能已整体删除。）
 class TutorialPage extends ConsumerStatefulWidget {
   const TutorialPage({super.key});
 
@@ -23,24 +19,27 @@ class TutorialPage extends ConsumerStatefulWidget {
 
 class _TutorialPageState extends ConsumerState<TutorialPage> {
   int _step = 0;
-  bool _tried = false;
 
-  static const List<({String sound, String meaning, List<String> keys})>
+  /// final 而非 const：riverSoundKey 是方法调用，不能进编译期常量。
+  static final List<({String sound, String meaning, List<String> keys})>
   _soundRows = [
-    (sound: '磬一声', meaning: '开始 / 请闭眼', keys: [SoundCatalog.chimeKey]),
-    (sound: '磬两声', meaning: '结束 / 可以睁眼', keys: [SoundCatalog.chimeDoubleKey]),
+    (sound: '轻快的筝', meaning: '开始 / 请闭眼', keys: [SoundCatalog.chimeKey]),
+    (sound: '沉重的筝', meaning: '结束 / 可以睁眼', keys: [SoundCatalog.chimeDoubleKey]),
     (
-      sound: '极轻的磬',
-      meaning: '打坐时确认你还在（30 秒内轻触任意处）',
-      keys: [SoundCatalog.chimeSoftKey],
+      sound: '过河引导音',
+      meaning: '过河：复现这个间隔',
+      keys: [SoundCatalog.riverSoundKey(1), SoundCatalog.riverSoundKey(2)],
     ),
-    (sound: '叮 —— 咚', meaning: '过河：复现这个间隔', keys: [SoundCatalog.heDingKey, SoundCatalog.heDongKey]),
-    (sound: '叮 / 咚', meaning: '钓花：花瓣 / 杂物，叮则收手', keys: [SoundCatalog.fishDingKey, SoundCatalog.fishDongKey]),
-    (sound: '木鱼声', meaning: '节拍锚——由你自己敲出', keys: [SoundCatalog.muyuKey]),
+    (
+      sound: '花瓣/杂物上钩的声音',
+      meaning: '花瓣/杂物上钩了',
+      keys: [SoundCatalog.fishDingKey, SoundCatalog.fishDongKey],
+    ),
+    (sound: '木鱼声', meaning: '一秒一声的节拍', keys: [SoundCatalog.muyuKey]),
   ];
 
   void _next() {
-    if (_step < 2) {
+    if (_step < 1) {
       setState(() => _step++);
     } else {
       _finish();
@@ -65,9 +64,6 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
 
   @override
   Widget build(BuildContext context) {
-    final store = ref.watch(storeProvider);
-    _tried = _tried || store.sessionCount > 0;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('入山门'),
@@ -82,7 +78,7 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  for (var i = 0; i < 3; i++)
+                  for (var i = 0; i < 2; i++)
                     Container(
                       width: 8,
                       height: 8,
@@ -101,9 +97,8 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 240),
                 child: switch (_step) {
-                  0 => _soundLanguageStep(),
-                  1 => _trialStep(),
-                  _ => _calibrationStep(store),
+                  0 => _welcomeStep(),
+                  _ => _soundLanguageStep(),
                 },
               ),
             ),
@@ -127,7 +122,7 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
                         vertical: 14,
                       ),
                     ),
-                    child: Text(_step == 2 ? '进入山门' : '下一步'),
+                    child: Text(_step == 1 ? '进入山门' : '下一步'),
                   ),
                 ],
               ),
@@ -138,11 +133,48 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
     );
   }
 
-  // ---- 第 ① 段：声音语义表 ----
+  // ---- 第 ① 页：出发提示（Bug 描述 #3 新增）----
+
+  Widget _welcomeStep() {
+    return Padding(
+      key: const ValueKey('step0'),
+      padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const Icon(
+            Icons.headphones_outlined,
+            color: AppTheme.goldDim,
+            size: 56,
+          ),
+          const SizedBox(height: 28),
+          const Text(
+            '建议戴上耳机，享受片刻宁静',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: AppTheme.ink,
+              fontSize: 20,
+              fontWeight: FontWeight.w600,
+              height: 1.7,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            '修行过程中，全程可闭眼',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppTheme.inkDim, fontSize: 15, height: 1.7),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ---- 第 ② 页：声音语义表 ----
 
   Widget _soundLanguageStep() {
     return ListView(
-      key: const ValueKey('step0'),
+      key: const ValueKey('step1'),
       padding: const EdgeInsets.symmetric(horizontal: 24),
       children: [
         const Text(
@@ -200,94 +232,6 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
           ),
         const SizedBox(height: 8),
       ],
-    );
-  }
-
-  // ---- 第 ② 段：60 秒试玩 ----
-
-  Widget _trialStep() {
-    return Padding(
-      key: const ValueKey('step1'),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            '先坐一分钟',
-            style: TextStyle(
-              color: AppTheme.ink,
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            '什么都不用做：磬响后闭上眼，一分钟后再听到磬声，就睁眼回来。\n\n'
-            '这就是一次完整的修行。所有修行都这样——几分钟，闭眼，跟着声音动一下。',
-            style: TextStyle(color: AppTheme.inkDim, fontSize: 14, height: 1.8),
-          ),
-          const SizedBox(height: 28),
-          OutlinedButton(
-            onPressed: () async {
-              await Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => PracticeHostPage(factory: SitQuietSession.new),
-                ),
-              );
-              if (mounted) setState(() => _tried = true);
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.gold,
-              side: const BorderSide(color: AppTheme.goldDim),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            child: Text(_tried ? '再试一次' : '试玩一分钟'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ---- 第 ③ 段：校准与完成 ----
-
-  Widget _calibrationStep(AppStore store) {
-    final calibrated = store.lUserUs != 0;
-    return Padding(
-      key: const ValueKey('step2'),
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text(
-            '最后一步：贴合你的耳朵',
-            style: TextStyle(
-              color: AppTheme.ink,
-              fontSize: 22,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 4,
-            ),
-          ),
-          const SizedBox(height: 12),
-          const Text(
-            '判定线扫到中间时会听见一声，那一刻点下屏幕，共 5 下。\n此后每一次声音与触摸的相遇，都会贴着你的耳朵来计算。\n\n'
-            '也可以先跳过——在「我」页随时可以校准。',
-            style: TextStyle(color: AppTheme.inkDim, fontSize: 14, height: 1.8),
-          ),
-          const SizedBox(height: 28),
-          OutlinedButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CalibrationPage()),
-            ),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.gold,
-              side: const BorderSide(color: AppTheme.goldDim),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-            ),
-            child: Text(calibrated ? '重新校准 ✓' : '去校准'),
-          ),
-        ],
-      ),
     );
   }
 }

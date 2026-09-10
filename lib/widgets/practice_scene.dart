@@ -211,7 +211,9 @@ class _ScenePainter extends CustomPainter {
       case PracticeSceneKind.woodenFish:
         _paintWoodenFish(canvas, size);
       case PracticeSceneKind.countRain:
-        _paintRain(canvas, size);
+        // 斜线雨与椭圆圈已按 Bug 描述 #6 删除：背景只保留庭院底图，
+        // 雨滴出现特效由数雨页的 _RainDropFlash 负责。
+        break;
       case PracticeSceneKind.tideBreath:
         _paintTide(canvas, size);
       case PracticeSceneKind.fishPetals:
@@ -295,32 +297,6 @@ class _ScenePainter extends CustomPainter {
           ..style = PaintingStyle.stroke
           ..strokeWidth = 1.5
           ..color = gold.withValues(alpha: active ? 0.32 - i * 0.07 : 0.08),
-      );
-    }
-  }
-
-  void _paintRain(Canvas canvas, Size s) {
-    final rain = Paint()
-      ..color = const Color(0x446FA8B3)
-      ..strokeWidth = 1;
-    for (var i = 0; i < 30; i++) {
-      final x = ((i * 47 + motion * 180) % (s.width + 40)) - 20;
-      final y = ((i * 83 + motion * s.height) % s.height);
-      canvas.drawLine(Offset(x, y), Offset(x - 7, y + 24), rain);
-    }
-    final rippleCount = math.min(5, 1 + count % 5);
-    for (var i = 0; i < rippleCount; i++) {
-      final r = s.width * (0.08 + i * 0.055 + motion * 0.02);
-      canvas.drawOval(
-        Rect.fromCenter(
-          center: Offset(s.width / 2, s.height * 0.68),
-          width: r * 2,
-          height: r * 0.48,
-        ),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = active ? 2.5 : 1.2
-          ..color = (active ? gold : jade).withValues(alpha: 0.34 - i * 0.05),
       );
     }
   }

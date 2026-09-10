@@ -5,20 +5,15 @@ import 'dart:math';
 /// 命名与《设计方案·七、教程与声音语言》的声音语义表对应：
 /// - 磬一声 chime        ：开始 / 请闭眼
 /// - 磬两声 chime_double ：结束 / 可以睁眼
-/// - 极轻的磬 chime_soft ：打坐在场确认 / 修行里程碑
-/// - 叮咚（过河）he_ding / he_dong：间隔度量
+/// - 过河 river_1..12    ：编号音色引导/跟随（Bug 描述 #8，替代旧叮咚）
 /// - 叮咚（钓花）fish_ding / fish_dong：花瓣 / 杂物判定
-///   两处叮/咚语义不同，音色与包络必须拉开（过河=明亮钟声+低沉鼓点，
-///   钓花=拨弦质感+闷响），防止用户迁移错误预期。
+///   与过河编号音语义不同，音色与包络必须拉开，防止用户迁移错误预期。
 abstract final class SoundCatalog {
   // 代码里引用语义化常量，资产表用字符串 key，二者编译期对齐。
   static const String chimeKey = 'chime';
   static const String chimeDoubleKey = 'chime_double';
-  static const String chimeSoftKey = 'chime_soft';
   static const String tickKey = 'tick';
   static const String muyuKey = 'muyu';
-  static const String heDingKey = 'he_ding';
-  static const String heDongKey = 'he_dong';
   static const String fishDingKey = 'fish_ding';
   static const String fishDongKey = 'fish_dong';
   static const String fishSinkKey = 'fish_sink';
@@ -26,6 +21,10 @@ abstract final class SoundCatalog {
   static const String swishKey = 'swish';
   static const String tideLoopKey = 'tide_loop';
   static const String forestLoopKey = 'forest_loop';
+
+  /// 过河引导/跟随音（Bug 描述 #8）：12 个编号音色，替换原"叮——咚"。
+  /// key = 'river_1' … 'river_12'。
+  static String riverSoundKey(int n) => 'river_$n';
 
   /// 修行 BGM（改进列表：可选手一首或随机/无，放完隔一秒循环）。
   /// name 是播放时展示给用户的名字。
@@ -52,16 +51,13 @@ abstract final class SoundCatalog {
   }
 
   /// key → AssetSource 路径（audioplayers 的 AssetSource 会自动补 assets/ 前缀）。
-  /// final 而非 const：包含 for 展开（BGM 音轨），编译期常量不支持。
+  /// final 而非 const：包含 for 展开（BGM 音轨与过河编号音），编译期常量不支持。
   static final Map<String, String> catalog = {
     'chime': 'sfx/chime.mp3',
-    'chime_soft': 'sfx/chime_soft.mp3',
     'chime_double': 'sfx/chime_double.mp3',
     'tick': 'sfx/tick.mp3',
     'muyu': 'sfx/muyu.mp3',
     'muyu_muffled': 'sfx/muyu_muffled.mp3',
-    'he_ding': 'sfx/he_ding.mp3',
-    'he_dong': 'sfx/he_dong.mp3',
     'fish_ding': 'sfx/fish_ding.mp3',
     'fish_dong': 'sfx/fish_dong.mp3',
     'rain_drop_1': 'sfx/rain_drop_1.mp3',
@@ -73,6 +69,8 @@ abstract final class SoundCatalog {
     'swish': 'sfx/swish.mp3',
     'forest_loop': 'sfx/forest_loop.mp3',
     'tide_loop': 'sfx/tide_loop.mp3',
+    // 过河 12 个编号音色（Bug 描述 #8，替换原叮/咚）。
+    for (var i = 1; i <= 12; i++) riverSoundKey(i): 'sfx/river/$i.m4a',
     for (final t in bgmTracks) t.key: 'bgm/${t.key}.m4a',
   };
 }

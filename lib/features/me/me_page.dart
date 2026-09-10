@@ -5,10 +5,10 @@ import '../../data/app_store.dart';
 import '../../di.dart';
 import '../../theme.dart';
 import '../report/report_page.dart';
-import '../tutorial/calibration_page.dart';
 
 /// 我（右页）：v0.1 占位页。
-/// 策划案明确暂不开发；先放数据概览、校准入口与调试工具。
+/// 策划案明确暂不开发；先放数据概览与调试工具。（时机校准入口已随
+/// 校准功能一并删除——Bug 描述 #3。）
 class MePage extends ConsumerWidget {
   const MePage({super.key});
 
@@ -53,17 +53,6 @@ class MePage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 24),
-          ListTile(
-            leading: const Icon(Icons.graphic_eq, color: AppTheme.gold),
-            title: const Text('时机校准', style: TextStyle(color: AppTheme.ink)),
-            subtitle: Text(
-              '判定线 5 下，取偏差中位数（当前 L_user = ${store.lUserUs} µs）',
-              style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
-            ),
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(builder: (_) => const CalibrationPage()),
-            ),
-          ),
           ListTile(
             leading: const Icon(Icons.auto_awesome, color: AppTheme.gold),
             title: const Text('修炼报告', style: TextStyle(color: AppTheme.ink)),

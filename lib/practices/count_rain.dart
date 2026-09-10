@@ -116,7 +116,7 @@ class CountRainSession extends PracticeSession {
     if (_finished || _askingReport) return;
     _askingReport = true;
     // 声音语言：磬一声 = 这一局听完了，请睁眼报数。
-    _ctx.sounds.play(SoundCatalog.chimeSoftKey, gain: 0.5);
+    // （Bug 描述 #3：极轻的磬已删除，报数页本身就是提示。）
     unawaited(_ctx.sounds.stopLoop(_ambientKey));
     // 兜底：报数页若长时间无人确认（用户走开），自动收口不发修为。
     // scheduleCallback 用会话时间轴绝对时刻：听雨 3 分钟 + 报数等待 3 分钟。
@@ -448,15 +448,28 @@ class _RainDropFlashState extends State<_RainDropFlash>
         final t = _controller.value;
         // 前 40% 渐显到 0.5 透明度，之后渐隐。
         final opacity = t < 0.4 ? (t / 0.4) * 0.5 : 0.5 * (1 - (t - 0.4) / 0.6);
+        // 雨滴出现涟漪（Bug 描述 #6）：雨滴图层的下方，一个半透明圆形
+        // 缓缓扩大、边扩大边虚化，最后完全消失。
+        final rippleT = (t / 0.8).clamp(0.0, 1.0);
         return Center(
-          child: Opacity(
-            opacity: opacity,
-            child: Image.asset(
-              'assets/images/raindrop.png',
-              width: 64,
-              height: 64,
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-            ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              if (rippleT < 1)
+                CustomPaint(
+                  size: const Size(220, 220),
+                  painter: _RipplePainter(progress: rippleT),
+                ),
+              Opacity(
+                opacity: opacity,
+                child: Image.asset(
+                  'assets/images/raindrop.png',
+                  width: 64,
+                  height: 64,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -468,6 +481,38 @@ class _RainDropFlashState extends State<_RainDropFlash>
     _controller.dispose();
     super.dispose();
   }
+}
+
+/// 雨滴出现涟漪：半径随时间扩大，透明度与描边同步衰减（边扩大边虚化）。
+class _RipplePainter extends CustomPainter {
+  const _RipplePainter({required this.progress});
+
+  final double progress;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final maxR = size.shortestSide / 2;
+    final radius = 14 + (maxR - 14) * Curves.easeOut.transform(progress);
+    final alpha = (1 - progress) * 0.4;
+    // 柔和的水痕：一圈渐淡的填充 + 一圈更淡的描边。
+    canvas.drawCircle(
+      c,
+      radius,
+      Paint()..color = const Color(0xFF6FA8B3).withValues(alpha: alpha * 0.35),
+    );
+    canvas.drawCircle(
+      c,
+      radius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2 * (1 - progress)
+        ..color = const Color(0xFF6FA8B3).withValues(alpha: alpha),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_RipplePainter old) => old.progress != progress;
 }
 
 class _Row extends StatelessWidget {
