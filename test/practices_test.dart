@@ -625,6 +625,157 @@ void main() {
       scheduler.dispose();
       session.dispose();
     });
+
+    testWidgets('落水全屏击散：力度按屏幕对角线归一（三轮审查 P1）', (tester) async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession();
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+      await pumpVisual(tester, session);
+      await tester.pump();
+      final pond = pondState(tester);
+
+      List<({Offset pos, Offset vel})> items() =>
+          (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
+
+      const center = Offset(30, 80);
+      // 测试画布 800×600：对角线 = 屏内两点最大距离。
+      final diagonal = const Offset(800, 600).distance;
+      final before = items();
+      expect(before.length, greaterThanOrEqualTo(4));
+
+      session.onInput(tapAt(center));
+      await pumpVisual(tester, session);
+      final after = items();
+      expect(after.length, before.length);
+
+      // 逐帧运动里击散在位移积分之前、之后统一乘 pow(0.5, dt) 阻尼，
+      // 故"径向速度增量 / 阻尼"应恰好等于击散冲量 300 × falloff。
+      final damp = pow(0.5, 1 / 60).toDouble();
+      for (var i = 0; i < after.length; i++) {
+        final radial = before[i].pos - center;
+        final dist = radial.distance;
+        final dir = radial / dist;
+        double dot(Offset v) => v.dx * dir.dx + v.dy * dir.dy;
+        final measured = dot(after[i].vel) / damp - dot(before[i].vel);
+        final falloff = (1 - dist / diagonal).clamp(0.0, 1.0);
+        final expected = 300 * falloff;
+        final legacy = 300 * (1 - dist / 800).clamp(0.0, 1.0);
+        // 旧实现以 longestSide(800) 归一：屏内越远衰减越狠，远端直接
+        // 归零；对角线(1000)归一才让"按距离不同散开"在整屏都成立。
+        expect(
+          measured,
+          closeTo(expected, 1.5),
+          reason: '距浮标 ${dist.toStringAsFixed(0)}px 处的击散冲量不符：'
+              'longestSide 归一应为 ${legacy.toStringAsFixed(1)}，'
+              '对角线归一应为 ${expected.toStringAsFixed(1)}',
+        );
+      }
+      scheduler.dispose();
+      session.dispose();
+    });
+
+    testWidgets('减少动态效果：脉冲消费照常，只跳过逐帧运动（三轮审查 P1）', (
+      tester,
+    ) async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession();
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      Future<void> repump() => tester.pumpWidget(
+            MaterialApp(
+              home: Builder(
+                builder: (outer) => MediaQuery(
+                  // 只翻 disableAnimations，尺寸仍取宿主（MediaQueryData()
+                  // 默认 size 是 Size.zero，会让池塘层拿不到画布尺寸）。
+                  data: MediaQuery.of(outer).copyWith(disableAnimations: true),
+                  child: Builder(
+                    builder: (inner) => session.buildVisual(inner),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+      await repump();
+      final pond = pondState(tester);
+      expect(pond.debugBuoy, isNull);
+
+      // 抛竿 → 浮标位置在无动画模式下也同步。
+      session.onInput(tapAt(const Offset(400, 300)));
+      await repump();
+      expect(pond.debugBuoy, const Offset(400, 300));
+
+      // 杂物上钩 → 绑定；主动松手 → 脱钩：全都不依赖帧驱动。
+      session.debugForceHook(petal: false);
+      await repump();
+      expect(pond.debugHookedCount, 1);
+
+      session.onInput(release(800000));
+      await repump();
+      expect(session.debugMiscatch, 1);
+      expect(pond.debugHookedCount, 0);
+
+      // 窗口内钓起花瓣：静态帧没有"收拢消失"的过程，残留物必须即时
+      // 清除、名额即时补齐——否则计数器停在 0，画家按 1 - leaveT
+      // 取透明度，残影会全不透明地永远留在屏上。
+      expect((pond.debugItems as List).length, 4);
+      session.debugForceHook(petal: true);
+      await repump();
+      session.onInput(release(400000));
+      await repump();
+      expect(session.debugPetals, 1);
+      expect(pond.debugTerminalCount, 0);
+      expect((pond.debugItems as List).length, 4);
+      scheduler.dispose();
+      session.dispose();
+    });
+  });
+
+  group('钓花听觉判定（三轮审查：超窗松手与轮询超时行为一致）', () {
+    test('叮超窗后松手 → 与轮询超时同样沉没并播沉没声', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 越过 1.5s 收杆窗口但不跑 100ms 轮询（模拟窗口刚过、
+        // 下一次轮询到来之前松手的竞态路径）。
+        session.debugForceHook(petal: true);
+        clock.advanceUs(1600000);
+        session.onInput(release(1600000));
+
+        expect(session.debugMissed, 1);
+        expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(1));
+        expect(session.debugIsResting, isTrue);
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
+
+    test('咚后空竿松手 → 脱钩路径，不播沉没声', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        session.debugForceHook(petal: false);
+        session.onInput(release(800000));
+
+        expect(session.debugMiscatch, 1);
+        expect(sounds.played.where((k) => k == 'fish_sink'), isEmpty);
+        expect(session.debugIsResting, isTrue);
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
   });
 
   group('木鱼视觉文案（二轮审查）', () {

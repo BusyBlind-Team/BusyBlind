@@ -261,20 +261,21 @@ class FishPetalsSession extends PracticeSession {
             _catchPulse++;
             _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.5);
             _ctx.recorder.log('catch', {'petals': _petalsCaught});
+            _restFrom(now);
+          } else if (_hookIsPetal) {
+            // 叮后超窗才松手（沉没轮询还没来得及判，三轮审查 P1）：
+            // 复用轮询超时的沉没路径，保证"超时流失"不因计时器先后
+            // 有时沉没有声、有时漂回无声。
+            _missed++;
+            _sinkAndRest(now);
           } else {
-            if (!_hookIsPetal) {
-              // "咚"后收手 = 空竿。
-              _miscatch++;
-              _waitTimesUs.add(heldUs);
-            } else {
-              // 叮后超窗才松手（沉没轮询还没来得及判）：同样算流失。
-              _missed++;
-            }
-            // 空竿：上钩者就地脱钩恢复漂流（二轮审查 P1：不发脉冲
-            // 物件会永久卡在 hooked 态，占用名额）。
+            // "咚"后收手 = 空竿：上钩的杂物就地脱钩恢复漂流
+            //（二轮审查 P1：不发脉冲物件会永久卡在 hooked 态）。
+            _miscatch++;
+            _waitTimesUs.add(heldUs);
             _releasePulse++;
+            _restFrom(now);
           }
-          _restFrom(now);
         } else if (_state == _RodState.casting) {
           // 没等到触竿就收手：空竿。
           _restFrom(now);
@@ -595,7 +596,21 @@ class _PondLayerState extends State<_PondLayer>
   int get _clutterCount =>
       _items.where((i) => !i.isPetal && !i.leaving && !i.sinking).length;
 
+  /// 屏幕对角线长度：屏内任意两点距离的上界，击散/吸引的归一基准。
+  double get _diagonal => Offset(_size.width, _size.height).distance;
+
   void _scheduleRespawn() => _spawnTimers.add(3 + _pondRng.nextDouble() * 5);
+
+  /// 补齐漂浮物名额（静态模式即时重生，不等重生计时器）。
+  void _refill() {
+    if (_size == Size.zero) return;
+    while (_petalCount < _maxPetals) {
+      _items.add(_PondItem(isPetal: true, pos: _randomPoint(_size)));
+    }
+    while (_clutterCount < _maxClutter) {
+      _items.add(_PondItem(isPetal: false, pos: _randomPoint(_size)));
+    }
+  }
 
   void _spawnAtEdge() {
     final isPetal = _petalCount <= _clutterCount;
@@ -614,8 +629,10 @@ class _PondLayerState extends State<_PondLayer>
   }
 
   void _scatterFrom(Offset center, double strength) {
-    // 击散所有漂浮物，力度按距离远近衰减（设计方案：按距离不同程度散开）。
-    final maxDist = _size.longestSide;
+    // 击散所有漂浮物：以屏幕对角线（屏内两点最大距离）归一衰减，
+    // 力度随距离平滑递减且屏内任何物件都不受零力度死区影响
+    //（三轮审查 P1：此前 longestSide 归一会让对角远端完全不受击散）。
+    final maxDist = _diagonal;
     for (final item in _items) {
       if (item.hooked || item.sinking || item.leaving) continue;
       final d = item.pos - center;
@@ -626,7 +643,12 @@ class _PondLayerState extends State<_PondLayer>
     }
   }
 
-  void _step(double dt) {
+  /// 状态同步：浮标位置、落水/拖动/上钩/收取/沉没/脱钩脉冲的消费。
+  ///
+  /// 与逐帧运动（[_step] 的位移积分部分）拆开（三轮审查 P1-1）：
+  /// 减少"动态效果"或开启无障碍导航时不跑动画，但状态照常消费，
+  /// 否则浮漂不显示、物件卡在上钩态、收取/沉没/脱钩全都不生效。
+  void _syncState() {
     if (_size == Size.zero) return;
     if (widget.buoy != null) _center = widget.buoy;
     final center = _center;
@@ -708,6 +730,13 @@ class _PondLayerState extends State<_PondLayer>
       }
       _hooked = null;
     }
+  }
+
+  void _step(double dt) {
+    if (_size == Size.zero) return;
+    _syncState();
+    final center = _center;
+    final buoyShown = widget.showBuoy && center != null;
 
     // 刷新计时。
     for (var i = 0; i < _spawnTimers.length; i++) {
@@ -763,12 +792,14 @@ class _PondLayerState extends State<_PondLayer>
       if (buoyShown) {
         final toBuoy = center - item.pos;
         final dist = toBuoy.distance;
-        final dir = dist > 0.01 ? toBuoy / dist : Offset.zero;
         // 有东西上钩时其余东西只暂停"逐渐靠近"的倾向（二轮审查 P1：
-        // 不再主动推远，保持附近游走）；平时逐渐靠近浮标（各自速度
-        // 不同，避免一起抵达）。
-        if (_hooked == null && dist > 60 && dist < 320) {
-          item.vel += dir * pull * item.speed * dt;
+        // 不再主动推远，保持附近游走）。
+        if (_hooked == null && dist > 24) {
+          // 逐渐靠近浮标的趋势：全距离平滑吸引（三轮审查 P1——移除
+          // 320px 硬截断），以屏幕对角线归一衰减，远处弱但不为零。
+          final dir = dist > 0.01 ? toBuoy / dist : Offset.zero;
+          final falloff = (1 - dist / _diagonal).clamp(0.2, 1.0);
+          item.vel += dir * pull * item.speed * falloff * dt;
         }
       }
       item.vel *= pow(0.5, dt).toDouble();
@@ -793,6 +824,17 @@ class _PondLayerState extends State<_PondLayer>
       _ensureSeeded();
     }
     if (_reduceMotion) {
+      // 无动画/无障碍导航：跳过逐帧运动，但状态同步（浮标位置、
+      // 上钩/收取/沉没/脱钩脉冲）随 widget 更新照常消费，只画静态帧
+      //（三轮审查 P1-1：脉冲全在 _syncState，不能因此全部失效）。
+      _syncState();
+      // 静态帧没有"下沉/收拢"的过程：_step 的 sinkT/leaveT 不推进，
+      // 沉没与收取的物件会以全不透明残影永远留在屏上（画家按
+      // 1 - sinkT/leaveT 取透明度，计数器停在 0 → 不消失）。
+      // 这里直接移除并即时补齐名额。
+      _items.removeWhere((i) => i.sinking || i.leaving);
+      _spawnTimers.clear();
+      _refill();
       return CustomPaint(
         painter: _PondPainter(
           items: _items,
@@ -833,6 +875,16 @@ class _PondLayerState extends State<_PondLayer>
   /// 当前浮标位置（手指处；null = 还没落过手指）。
   @visibleForTesting
   Offset? get debugBuoy => _center;
+
+  /// 全部漂浮物的位置与速度（击散/吸引的回归断言点，三轮审查 P1）。
+  @visibleForTesting
+  List<({Offset pos, Offset vel})> get debugItems =>
+      _items.map((i) => (pos: i.pos, vel: i.vel)).toList(growable: false);
+
+  /// 沉没/收取中的物件数。无动画模式直接移除，故应恒为 0。
+  @visibleForTesting
+  int get debugTerminalCount =>
+      _items.where((i) => i.sinking || i.leaving).length;
 }
 
 class _PondPainter extends CustomPainter {
