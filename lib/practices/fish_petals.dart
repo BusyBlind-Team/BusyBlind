@@ -241,6 +241,8 @@ class FishPetalsSession extends PracticeSession {
           if (_state == _RodState.casting || _state == _RodState.hooked) {
             _dragPulse++;
           }
+          // 宿主通过 visualRevision 刷新传入池塘的坐标与脉冲。
+          notifyVisualChanged();
         }
       case PointerPhase.up:
       case PointerPhase.cancel:
