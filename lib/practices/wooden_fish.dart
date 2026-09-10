@@ -171,7 +171,7 @@ class WoodenFishSession extends PracticeSession {
           child: PracticeScene(
             kind: PracticeSceneKind.woodenFish,
             title: '木 鱼',
-            subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '\$_strikes / \$_totalStrikes 声',
+            subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '$_strikes / $_totalStrikes 声',
             progress: _strikes / _totalStrikes,
             active: _strikes > 0,
             count: _strikes,

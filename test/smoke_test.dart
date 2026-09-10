@@ -158,6 +158,25 @@ void main() {
     expect(find.textContaining('木 鱼'), findsOneWidget);
   });
 
+  testWidgets('听潮选了 BGM：环境循环承载曲目，曲名唱片指示照常显示（二轮审查 P2）', (
+    tester,
+  ) async {
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('tide_breath')
+      ..setBgmSettings(track: 2); // 固定"风铃"
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+
+    // 听潮是 usesAmbientLoop 修行：不另起 BgmPlayer，但曲名指示
+    // 必须照常出现（唱片动画持续旋转，故不能用 pumpAndSettle）。
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(find.text('退出'), findsOneWidget);
+    expect(find.text('♪ 风铃'), findsOneWidget);
+  });
+
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {
     final store = AppStore.inMemory();
     await tester.pumpWidget(harness(home: const SignPage(), store: store));

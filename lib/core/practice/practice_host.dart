@@ -56,6 +56,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   // 修行 BGM（改进列表）：随机一首 + 顶部小字唱片机。
   final BgmPlayer _bgm = BgmPlayer();
   String _bgmName = '';
+  String _bgmTrackName = '';
   late final AnimationController _bgmSpin;
 
   @override
@@ -84,6 +85,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 环境音回退各自的默认音效。
     final store = ref.read(storeProvider);
     final resolved = SoundCatalog.resolveTrack(store.bgmTrackIndex);
+    _bgmTrackName = resolved?.name ?? '';
     final params = {
       ...widget.params,
       if (resolved != null) ...{
@@ -152,7 +154,9 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 只跳过音乐启动，绝不影响开始流程（复审 P1：此前 return 吞掉了
     // _running 置位，选"无"会卡在开始界面）。
     // 听潮/数雨的会话内环境循环在选曲时就是这首曲子（音量包络的载体），
-    // 这里不再另起 BgmPlayer，避免两个声道同播同一首（复审 R1）。
+    // 这里不再另起 BgmPlayer，避免两个声道同播同一首（复审 R1）；
+    // 但曲名与唱片动画照常展示——音乐确实在放，只是由环境循环承载
+    //（二轮审查 P2：指示器不能只认 _bgm.start）。
     final bgmAsset = _ctx?.params['bgmAsset'] as String?;
     if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
       _bgm
@@ -166,6 +170,11 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
           _bgmSpin.repeat();
         }
       });
+    } else if (bgmAsset != null) {
+      if (mounted) {
+        setState(() => _bgmName = _bgmTrackName);
+      }
+      _bgmSpin.repeat();
     }
     setState(() => _running = true);
   }

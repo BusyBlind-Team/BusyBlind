@@ -14,6 +14,7 @@ import 'package:busy_blind/practices/fish_petals.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:fake_async/fake_async.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
@@ -533,6 +534,122 @@ void main() {
       expect(result.metrics['casts'], 1);
       expect(result.extraRewards, isEmpty);
       scheduler.dispose();
+    });
+  });
+
+  group('钓花视觉（俯视池塘层，二轮审查）', () {
+    InputEvent tapAt(Offset p, {int sessionUs = 0}) => InputEvent(
+      phase: PointerPhase.down,
+      absAudioUs: sessionUs,
+      sessionUs: sessionUs,
+      rawTimeStamp: Duration(microseconds: sessionUs),
+      position: p,
+    );
+
+    InputEvent moveTo(Offset p, {int sessionUs = 0}) => InputEvent(
+      phase: PointerPhase.move,
+      absAudioUs: sessionUs,
+      sessionUs: sessionUs,
+      rawTimeStamp: Duration(microseconds: sessionUs),
+      position: p,
+    );
+
+    /// 池塘层是私有组件：按运行时类型取它的 State，用 dynamic 访问
+    /// @visibleForTesting 断言点。
+    dynamic pondState(WidgetTester tester) =>
+        tester.allStates.firstWhere(
+          (s) => s.runtimeType.toString() == '_PondLayerState',
+        );
+
+    Future<void> pumpVisual(WidgetTester tester, PracticeSession session) =>
+        tester.pumpWidget(
+          MaterialApp(
+            home: Builder(builder: (context) => session.buildVisual(context)),
+          ),
+        );
+
+    testWidgets('浮标落在手指处并跟随拖动（已拍板玩法，二轮审查 P1）', (
+      tester,
+    ) async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession();
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+      await pumpVisual(tester, session);
+      await tester.pump();
+      final pond = pondState(tester);
+      expect(pond.debugBuoy, isNull); // 没落手指前没有浮标
+
+      session.onInput(tapAt(const Offset(180, 260)));
+      await pumpVisual(tester, session);
+      expect(pond.debugBuoy, const Offset(180, 260)); // 落在手指处
+
+      session.onInput(moveTo(const Offset(320, 300)));
+      await pumpVisual(tester, session);
+      await tester.pump();
+      expect(pond.debugBuoy, const Offset(320, 300)); // 按住拖动跟随
+      scheduler.dispose();
+      session.dispose();
+    });
+
+    testWidgets('杂物上钩后主动松手：上钩者脱钩恢复漂流，不再卡死', (tester) async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession();
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+      await pumpVisual(tester, session);
+      await tester.pump();
+      final pond = pondState(tester);
+
+      // 在手指处甩杆，杂物上钩（咚）→ 池塘层绑定一名上钩者。
+      session.onInput(tapAt(const Offset(400, 300)));
+      session.debugForceHook(petal: false);
+      await pumpVisual(tester, session);
+      await tester.pump();
+      expect(pond.debugHookedCount, 1);
+
+      // 主动松手 = 空竿：状态机发脱钩脉冲，物件不得永久卡在 hooked 态。
+      session.onInput(release(800000));
+      await pumpVisual(tester, session);
+      await tester.pump();
+      expect(session.debugMiscatch, 1);
+      expect(pond.debugHookedCount, 0);
+
+      // 下一次抛竿后同样不残留卡死物件。
+      session.onInput(tapAt(const Offset(200, 200), sessionUs: 4000000));
+      await pumpVisual(tester, session);
+      await tester.pump();
+      expect(pond.debugHookedCount, 0);
+      scheduler.dispose();
+      session.dispose();
+    });
+  });
+
+  group('木鱼视觉文案（二轮审查）', () {
+    testWidgets('敲击计数使用插值，不显示变量名原文', (tester) async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = WoodenFishSession();
+      await session.prepare(ctx);
+      session.start();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(builder: (context) => session.buildVisual(context)),
+        ),
+      );
+      expect(find.text('第一声 · 由你敲响'), findsOneWidget);
+
+      session.onInput(tap(1000000));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(builder: (context) => session.buildVisual(context)),
+        ),
+      );
+      expect(find.text('1 / 108 声'), findsOneWidget);
+      expect(find.text(r'$_strikes / $_totalStrikes 声'), findsNothing);
+      scheduler.dispose();
+      session.dispose();
     });
   });
 }

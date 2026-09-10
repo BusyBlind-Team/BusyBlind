@@ -61,12 +61,18 @@ class FishPetalsSession extends PracticeSession {
   int? _lastInputUs;
   Timer? _pollTimer;
 
-  // 视觉层事件脉冲：上钩一次 +1 / 收瓣成功一次 +1 / 沉底一次 +1
-  // （俯视池塘层据此绑定状态；复审 R3：沉没事件由状态机发出，
-  // 声效不再依赖视觉动画是否在绘制）。
+  // 视觉层事件脉冲：上钩一次 +1 / 收瓣成功一次 +1 / 沉底一次 +1 /
+  // 空竿脱钩一次 +1（俯视池塘层据此绑定状态；复审 R3：沉没事件由
+  // 状态机发出，声效不再依赖视觉动画是否在绘制）。
   int _hookPulse = 0;
   int _catchPulse = 0;
   int _sinkPulse = 0;
+  int _releasePulse = 0;
+
+  // 浮标位置（设计方案已拍板）：长按落在手指处，按住拖动跟着走，
+  // 拖动过的下一帧使漂浮物散开。
+  Offset? _buoyPos;
+  int _dragPulse = 0;
 
   // 统计。
   int _petalsCaught = 0;
@@ -192,6 +198,8 @@ class FishPetalsSession extends PracticeSession {
     _castStartUs = now;
     _hookAtUs = now;
     _hookIsPetal = petal;
+    // 与真实 _hook 一致：视觉层靠上钩脉冲绑定上钩者。
+    _hookPulse++;
     _state = _RodState.hooked;
     notifyVisualChanged();
   }
@@ -215,9 +223,10 @@ class FishPetalsSession extends PracticeSession {
 
     switch (e.phase) {
       case PointerPhase.down:
+        // 甩杆：浮漂落在手指处（设计方案已拍板，俯视视觉）。
+        _buoyPos = e.position ?? _buoyPos;
         if (_state == _RodState.idle ||
             (_state == _RodState.resting && now >= _restEndUs)) {
-          // 甩杆：浮漂落在屏幕正中（改进列表 #17，俯视视觉）。
           _state = _RodState.casting;
           _castStartUs = now;
           _casts++;
@@ -226,7 +235,13 @@ class FishPetalsSession extends PracticeSession {
           notifyVisualChanged();
         }
       case PointerPhase.move:
-        break; // 浮漂固定在屏幕正中，拖动不移动浮漂。
+        // 浮标跟随手指；拖动使漂浮物散开（已拍板），不参与判定。
+        if (e.position != null && e.position != _buoyPos) {
+          _buoyPos = e.position;
+          if (_state == _RodState.casting || _state == _RodState.hooked) {
+            _dragPulse++;
+          }
+        }
       case PointerPhase.up:
       case PointerPhase.cancel:
         if (_state == _RodState.hooked) {
@@ -246,9 +261,18 @@ class FishPetalsSession extends PracticeSession {
             _catchPulse++;
             _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.5);
             _ctx.recorder.log('catch', {'petals': _petalsCaught});
-          } else if (!_hookIsPetal) {
-            _miscatch++;
-            _waitTimesUs.add(heldUs);
+          } else {
+            if (!_hookIsPetal) {
+              // "咚"后收手 = 空竿。
+              _miscatch++;
+              _waitTimesUs.add(heldUs);
+            } else {
+              // 叮后超窗才松手（沉没轮询还没来得及判）：同样算流失。
+              _missed++;
+            }
+            // 空竿：上钩者就地脱钩恢复漂流（二轮审查 P1：不发脉冲
+            // 物件会永久卡在 hooked 态，占用名额）。
+            _releasePulse++;
           }
           _restFrom(now);
         } else if (_state == _RodState.casting) {
@@ -337,10 +361,13 @@ class FishPetalsSession extends PracticeSession {
           child: IgnorePointer(
             child: _PondLayer(
               showBuoy: _state == _RodState.casting || _state == _RodState.hooked,
+              buoy: _buoyPos,
               hookPulse: _hookPulse,
               hookIsPetal: _hookIsPetal,
               catchPulse: _catchPulse,
               sinkPulse: _sinkPulse,
+              releasePulse: _releasePulse,
+              dragPulse: _dragPulse,
               holdSeconds: () {
                 if (_state != _RodState.casting) return 0.0;
                 return (_ctx.scheduler.nowUs() - _castStartUs) / 1e6;
@@ -444,15 +471,18 @@ class PetalBadge extends StatelessWidget {
 }
 
 
-/// 俯视池塘层（纯视觉，不参与叮/咚判定）——改进列表 #17。
+/// 俯视池塘层（纯视觉，不参与叮/咚判定）——改进列表 #17，视觉按
+/// 设计方案已拍板条目实现。
 ///
 /// - 未甩杆：只有缓慢漂流的花瓣与杂物（同屏上限 2 瓣 + 2 杂）。
-/// - 长按甩杆：浮漂在屏幕正中落下（仅仅是浮漂），点起几圈逐渐虚化的
-///   涟漪；浮漂落下时击散附近所有东西。
-/// - 之后随甩杆时间延长，东西在一定距离随机游走，并逐渐有靠近浮漂的
-///   趋势；每样东西速度不同，避免一起抵达。
-/// - 一个东西上钩（叮/咚脉冲）：其他东西缓慢远离浮漂、在附近游走；
-///   到点未钓起时状态机发沉没脉冲，上钩者沉下水底消失。
+/// - 长按甩杆：浮标落在手指处（略微放大、点起几圈涟漪由涟漪层表现）；
+///   落水击散所有漂浮物，力度按距离远近衰减。
+/// - 之后随甩杆时间延长，东西随机游走，并逐渐有靠近浮标的趋势；
+///   每样东西速度不同，避免一起抵达。按住拖动（移动浮标）会使
+///   漂浮物散开。
+/// - 一个东西上钩（叮/咚脉冲）：其余东西暂停靠近倾向（不主动推远）；
+///   到点未钓起由状态机发沉没脉冲，上钩者沉下水底消失。
+/// - 空竿收杆（咚后主动松手等）：上钩者就地脱钩恢复漂流。
 /// - 有东西消失后，等 3–8 秒在屏幕边缘刷新一个（不超过上限）。
 class _PondItem {
   _PondItem({required this.isPetal, required this.pos})
@@ -476,18 +506,30 @@ final Random _pondRng = Random(23);
 class _PondLayer extends StatefulWidget {
   const _PondLayer({
     required this.showBuoy,
+    required this.buoy,
     required this.hookPulse,
     required this.hookIsPetal,
     required this.catchPulse,
     required this.sinkPulse,
+    required this.releasePulse,
+    required this.dragPulse,
     required this.holdSeconds,
   });
 
   final bool showBuoy;
+
+  /// 浮标位置（手指处；null = 本局还没落过手指，仅漂浮物漂流）。
+  final Offset? buoy;
   final int hookPulse;
   final bool hookIsPetal;
   final int catchPulse;
   final int sinkPulse;
+
+  /// 空竿脱钩脉冲：上钩者未收未沉的收杆，就地恢复漂流。
+  final int releasePulse;
+
+  /// 拖动浮标脉冲：移动过就散开漂浮物（设计方案已拍板）。
+  final int dragPulse;
   final double Function() holdSeconds;
 
   @override
@@ -500,19 +542,22 @@ class _PondLayerState extends State<_PondLayer>
   final List<_PondItem> _items = [];
   final List<({Offset pos, double age})> _ripples = [];
   final List<double> _spawnTimers = [];
-  Offset? _center;
   Size _size = Size.zero;
 
   bool _buoyWasShown = false;
   int _hookSeen = 0;
   int _catchSeen = 0;
   int _sinkSeen = 0;
+  int _releaseSeen = 0;
+  int _dragSeen = 0;
   _PondItem? _hooked;
   bool _reduceMotion = false;
 
+  /// 浮标当前位置：跟随手指，没落过手指时为 null。
+  Offset? _center;
+
   static const int _maxPetals = 2;
   static const int _maxClutter = 2;
-  static const double _scatterRadius = 180;
 
   @override
   void initState() {
@@ -531,7 +576,6 @@ class _PondLayerState extends State<_PondLayer>
     final s = media?.size ?? Size.zero;
     if (s == Size.zero || s == _size && _items.isNotEmpty) return;
     _size = s;
-    _center ??= Offset(s.width / 2, s.height / 2);
     if (_items.isNotEmpty) return;
     for (var i = 0; i < _maxPetals; i++) {
       _items.add(_PondItem(isPetal: true, pos: _randomPoint(s)));
@@ -570,61 +614,67 @@ class _PondLayerState extends State<_PondLayer>
   }
 
   void _scatterFrom(Offset center, double strength) {
+    // 击散所有漂浮物，力度按距离远近衰减（设计方案：按距离不同程度散开）。
+    final maxDist = _size.longestSide;
     for (final item in _items) {
       if (item.hooked || item.sinking || item.leaving) continue;
       final d = item.pos - center;
       final dist = d.distance;
-      if (dist < _scatterRadius && dist > 0.01) {
-        final falloff = 1 - dist / _scatterRadius;
-        item.vel += d / dist * falloff * 300 * strength;
-      }
+      if (dist < 0.01) continue;
+      final falloff = (1 - dist / maxDist).clamp(0.0, 1.0);
+      item.vel += d / dist * 300 * falloff * strength;
     }
   }
 
   void _step(double dt) {
     if (_size == Size.zero) return;
-    final center = _center!;
-    final buoyShown = widget.showBuoy;
+    if (widget.buoy != null) _center = widget.buoy;
+    final center = _center;
+    final buoyShown = widget.showBuoy && center != null;
 
-    // 浮漂落水：涟漪 + 击散附近所有东西。
+    // 浮标落水：涟漪 + 击散所有漂浮物（力度按距离衰减，已拍板）。
     if (buoyShown && !_buoyWasShown) {
       for (var i = 0; i < 3; i++) {
         _ripples.add((pos: center, age: -i * 0.18));
       }
       _scatterFrom(center, 1.0);
+      // 兜底脱钩：上次空竿的上钩者不因引用清空而永久卡在 hooked 态。
+      _hooked?.hooked = false;
       _hooked = null;
     }
     _buoyWasShown = buoyShown;
 
-    // 上钩脉冲：把最靠近浮漂的同类型东西绑为上钩者；其余缓慢远离。
+    // 拖动浮标脉冲：移动过就散开漂浮物（已拍板）。
+    if (widget.dragPulse != _dragSeen) {
+      _dragSeen = widget.dragPulse;
+      if (buoyShown) _scatterFrom(center, 0.5);
+    }
+
+    // 上钩脉冲：把最靠近浮标的同类型东西绑为上钩者。
     if (widget.hookPulse != _hookSeen) {
       _hookSeen = widget.hookPulse;
-      _PondItem? nearest;
-      var best = double.infinity;
-      for (final item in _items) {
-        if (item.isPetal != widget.hookIsPetal ||
-            item.sinking ||
-            item.leaving) {
-          continue;
-        }
-        final d = (item.pos - center).distance;
-        if (d < best) {
-          best = d;
-          nearest = item;
-        }
-      }
-      if (nearest != null) {
-        _hooked = nearest..hooked = true;
+      if (center != null) {
+        _PondItem? nearest;
+        var best = double.infinity;
         for (final item in _items) {
-          if (item == nearest || item.sinking || item.leaving) continue;
-          final d = item.pos - center;
-          final dist = d.distance;
-          if (dist > 0.01) item.vel += d / dist * 22;
+          if (item.isPetal != widget.hookIsPetal ||
+              item.sinking ||
+              item.leaving) {
+            continue;
+          }
+          final d = (item.pos - center).distance;
+          if (d < best) {
+            best = d;
+            nearest = item;
+          }
+        }
+        if (nearest != null) {
+          _hooked = nearest..hooked = true;
         }
       }
     }
 
-    // 收瓣脉冲：上钩者被钓起，向浮漂收拢消失。
+    // 收瓣脉冲：上钩者被钓起，向浮标收拢消失。
     if (widget.catchPulse != _catchSeen) {
       _catchSeen = widget.catchPulse;
       if (_hooked != null && !_hooked!.sinking) {
@@ -645,6 +695,16 @@ class _PondLayerState extends State<_PondLayer>
           ..hooked = false
           ..sinking = true;
         _scheduleRespawn();
+      }
+      _hooked = null;
+    }
+
+    // 脱钩脉冲（二轮审查 P1）：空竿收杆——上钩者未收未沉，
+    // 就地脱钩恢复漂流，不占名额也不停在浮标边打转。
+    if (widget.releasePulse != _releaseSeen) {
+      _releaseSeen = widget.releasePulse;
+      if (_hooked != null && !_hooked!.sinking && !_hooked!.leaving) {
+        _hooked!.hooked = false;
       }
       _hooked = null;
     }
@@ -675,13 +735,15 @@ class _PondLayerState extends State<_PondLayer>
       }
       if (item.leaving) {
         item.leaveT += dt / 0.5;
-        item.pos += (center - item.pos) * (dt * 6).clamp(0.0, 1.0);
+        if (center != null) {
+          item.pos += (center - item.pos) * (dt * 6).clamp(0.0, 1.0);
+        }
         continue;
       }
       if (item.hooked) {
-        // 上钩者停在浮漂边轻微打转。
+        // 上钩者停在浮标边轻微打转。
         item.phase += dt * 3;
-        final d = item.pos - center;
+        final d = item.pos - center!;
         final dist = d.distance;
         if (dist > 26) {
           item.pos += -d / dist * 30 * dt;
@@ -702,11 +764,10 @@ class _PondLayerState extends State<_PondLayer>
         final toBuoy = center - item.pos;
         final dist = toBuoy.distance;
         final dir = dist > 0.01 ? toBuoy / dist : Offset.zero;
-        if (_hooked != null && item != _hooked) {
-          // 有东西上钩：其他东西很缓慢地远离浮漂、在附近游走。
-          item.vel += -dir * 6 * dt;
-        } else if (dist > 60 && dist < 320) {
-          // 逐渐靠近浮漂的趋势（各自速度不同，避免一起抵达）。
+        // 有东西上钩时其余东西只暂停"逐渐靠近"的倾向（二轮审查 P1：
+        // 不再主动推远，保持附近游走）；平时逐渐靠近浮标（各自速度
+        // 不同，避免一起抵达）。
+        if (_hooked == null && dist > 60 && dist < 320) {
           item.vel += dir * pull * item.speed * dt;
         }
       }
@@ -736,7 +797,7 @@ class _PondLayerState extends State<_PondLayer>
         painter: _PondPainter(
           items: _items,
           ripples: const [],
-          showBuoy: widget.showBuoy,
+          showBuoy: widget.showBuoy && _center != null,
           center: _center ?? Offset.zero,
         ),
       );
@@ -749,7 +810,7 @@ class _PondLayerState extends State<_PondLayer>
           painter: _PondPainter(
             items: _items,
             ripples: _ripples,
-            showBuoy: widget.showBuoy,
+            showBuoy: widget.showBuoy && _center != null,
             center: _center ?? Offset.zero,
           ),
         );
@@ -762,6 +823,16 @@ class _PondLayerState extends State<_PondLayer>
     _frame.dispose();
     super.dispose();
   }
+
+  /// 处于上钩态（hooked 标记未复位）的漂浮物数量。
+  /// 空竿收杆后应为 0——卡在 hooked 态会占名额、停在浮标边打转
+  /// （二轮审查 P1 的回归断言点）。
+  @visibleForTesting
+  int get debugHookedCount => _items.where((i) => i.hooked).length;
+
+  /// 当前浮标位置（手指处；null = 还没落过手指）。
+  @visibleForTesting
+  Offset? get debugBuoy => _center;
 }
 
 class _PondPainter extends CustomPainter {
