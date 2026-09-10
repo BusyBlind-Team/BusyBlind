@@ -151,8 +151,10 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 修行 BGM：本局解析好的那首（"无"设置下不启动），放完隔一秒循环。
     // 只跳过音乐启动，绝不影响开始流程（复审 P1：此前 return 吞掉了
     // _running 置位，选"无"会卡在开始界面）。
+    // 听潮/数雨的会话内环境循环在选曲时就是这首曲子（音量包络的载体），
+    // 这里不再另起 BgmPlayer，避免两个声道同播同一首（复审 R1）。
     final bgmAsset = _ctx?.params['bgmAsset'] as String?;
-    if (bgmAsset != null) {
+    if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
       _bgm
           .start(
             asset: bgmAsset,
@@ -219,38 +221,12 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
 
     final maxMerit = _session.manifest.meritBase * 3;
     final merit = result.merit.clamp(0, maxMerit);
-
-    if (result.note == 'sleep_mode') {
-      // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
-      store.queuePendingMerit(merit);
-      // 成就评估不能跳过，否则听潮相关成就要等下次启动才追认
-      //（第 13 轮自检：潮涌潮落/天地吐息/水之呼吸/立刻抢救）。
-      store.unlockAchievements(
-        kAchievements
-            .where(
-              (a) => a.test(
-                AchievementEval(
-                  store: store,
-                  lastResult: result,
-                  lastManifest: _session.manifest,
-                ),
-              ),
-            )
-            .map((a) => a.id),
-      );
-      try {
-        await sounds.stopLoop(SoundCatalog.tideLoopKey);
-      } on Exception {
-        // 循环已停则忽略。
-      }
-      if (mounted) {
-        Navigator.of(context).maybePop();
-      }
-      return;
-    }
+    final sleepMode = result.note == 'sleep_mode';
 
     try {
-      store.addMerit(merit);
+      // 会话历史入库是公共结算步骤（复审 R2）：成就口径读的是
+      // store.sessions，助眠局不入库，潮涌潮落/水之呼吸永远不解锁，
+      // 统计与报告也会漏计这一次。
       store.addSession(
         practiceId: _session.manifest.id,
         merit: merit,
@@ -267,6 +243,14 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
             break;
         }
       }
+      if (sleepMode) {
+        // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
+        store.queuePendingMerit(merit);
+      } else {
+        store.addMerit(merit);
+      }
+      // 成就评估对所有模式一致（含助眠，第 13 轮自检；历史口径靠上面
+      // 刚入库的会话，复审 R2）。
       final freshIds = evaluateAchievements(
         store,
         lastResult: result,
@@ -276,6 +260,18 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         for (final id in freshIds)
           kAchievements.firstWhere((a) => a.id == id).title,
       ];
+
+      if (sleepMode) {
+        try {
+          await sounds.stopLoop(SoundCatalog.tideLoopKey);
+        } on Exception {
+          // 循环已停则忽略。
+        }
+        if (mounted) {
+          Navigator.of(context).maybePop();
+        }
+        return;
+      }
 
       // 声音语言：磬两声 = 结束 / 可以睁眼。
       await sounds.play(SoundCatalog.chimeDoubleKey);

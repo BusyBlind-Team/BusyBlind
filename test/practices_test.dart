@@ -468,6 +468,53 @@ void main() {
       });
     });
 
+    test('叮超时/咚久握 → 沉没声由会话状态机发出（复审 R3）', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 叮（花瓣）超过 1.5s 收杆窗口 → 流失 + 沉没声。
+        session.debugForceHook(petal: true);
+        clock.advanceUs(1600000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugMissed, 1);
+        expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(1));
+
+        // 咚（杂物）4s 自动休整 → 同样由状态机发沉没声。
+        clock.advanceUs(3000000); // 越过休竿期
+        async.elapse(const Duration(milliseconds: 200));
+        session.debugForceHook(petal: false);
+        clock.advanceUs(4100000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugIsResting, isTrue);
+        expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(2));
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
+
+    test('结算奖励文案带稀有度名称，插值未被转义（复审 R5）', () async {
+      final (ctx, _, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession();
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+      session.debugForceHook(petal: true);
+      session.onInput(release(0)); // 窗口内收杆
+      final result = await session.finish(FinishReason.userEnded);
+      expect(result.extraRewards.single.id,
+          anyOf('common', 'rare', 'legendary'));
+      expect(
+        result.extraRewards.single.label,
+        anyOf('花瓣（常见）', '花瓣（稀有）', '花瓣（奇珍）'),
+      );
+      session.dispose();
+      scheduler.dispose();
+    });
+
     test('叮后 1.5 秒内松手 → 花瓣入库（extraRewards）', () async {
       FinishReason? reason;
       final (ctx, _, _, scheduler) = makeContext((r) => reason = r);

@@ -51,7 +51,7 @@ class FlowerIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     Widget art = Image.asset(
-      'assets/art/flowers/${species.id}.webp',
+      flowerArtAsset(species.id),
       width: size,
       height: size,
       fit: BoxFit.contain,

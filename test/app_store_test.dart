@@ -2,9 +2,11 @@ import 'dart:math';
 import 'dart:io';
 
 import 'package:busy_blind/core/llm/llm_client.dart';
+import 'package:busy_blind/core/practice/practice_result.dart';
 import 'package:busy_blind/data/app_store.dart';
 import 'package:busy_blind/domain/achievements.dart';
 import 'package:busy_blind/domain/petals.dart';
+import 'package:busy_blind/practices/tide_breath.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 
@@ -204,6 +206,51 @@ void main() {
       );
       expect(offset.test(AchievementEval(store: store2)), isTrue);
       expect(burst.test(AchievementEval(store: store2)), isFalse);
+    });
+
+    test('助眠会话入库后，听潮成就当场可解（复审 R2）', () {
+      final tide1 = kAchievements.firstWhere((a) => a.id == 'tide_1');
+      final tideSync90 = kAchievements.firstWhere((a) => a.id == 'tide_sync90');
+      const result = PracticeResult(
+        effectiveDuration: Duration(minutes: 1),
+        quality: 0.95,
+        merit: 2,
+        note: 'sleep_mode',
+        metrics: {'phaseCount': 2, 'avgSync': 0.95},
+      );
+      AchievementEval evalOf(AppStore store) => AchievementEval(
+        store: store,
+        lastResult: result,
+        lastManifest: TideBreathSession().manifest,
+      );
+
+      // 会话未入库（宿主若在 addSession 之前评估，即复审复现的现象）：
+      // 听潮成就读的是 store.sessions，lastResult 不参与历史扫描。
+      final notSaved = AppStore.inMemory();
+      expect(tide1.test(evalOf(notSaved)), isFalse);
+      expect(tideSync90.test(evalOf(notSaved)), isFalse);
+
+      // 公共结算步骤先入库再评估：完成 1 分钟、phaseCount≥2、avgSync>0.90
+      // → 潮涌潮落与水之呼吸当场解锁。
+      final store = AppStore.inMemory();
+      store.addSession(
+        practiceId: 'tide_breath',
+        merit: 2,
+        completed: true,
+        durationMs: 60000,
+        metrics: result.metrics,
+      );
+      expect(tide1.test(evalOf(store)), isTrue);
+      expect(tideSync90.test(evalOf(store)), isTrue);
+
+      // 助眠修为走次日补发队列，不直接入账；到期才补。
+      expect(store.merit, 0);
+      store.queuePendingMerit(
+        2,
+        now: DateTime.now().subtract(const Duration(days: 2)),
+      );
+      expect(store.takePendingMerit(), 2);
+      expect(store.merit, 2);
     });
 
     test('成就解锁幂等', () {

@@ -150,6 +150,18 @@ const List<FlowerSpecies> kFlowerSpecies = [
 FlowerSpecies flowerById(String id) =>
     kFlowerSpecies.firstWhere((s) => s.id == id, orElse: () => kFlowerSpecies.first);
 
+/// 花种 id → 正式美术文件名（assets/art/flowers/<文件名>.webp）。
+/// 部分素材文件名与 camelCase 的 id 不一致（樱花=cherry、迎春=winter_jasmine，
+/// 复审 R4），此处显式映射；未列出的花种直接以 id 为文件名。
+const Map<String, String> kFlowerArtFileNames = {
+  'sakura': 'cherry',
+  'winterJasmine': 'winter_jasmine',
+};
+
+/// 花种 id 对应的正式美术资产路径。
+String flowerArtAsset(String id) =>
+    'assets/art/flowers/${kFlowerArtFileNames[id] ?? id}.webp';
+
 /// 通用花瓣色（花瓣已不分物种，视觉统一用这个柔和粉色）。
 const Color kGenericPetalColor = Color(0xFFEFC3C4);
 

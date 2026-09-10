@@ -51,6 +51,7 @@ class CountRainSession extends PracticeSession {
     typicalLength: Duration(minutes: 3),
     meritBase: 10,
     iconKey: 'count_rain',
+    usesAmbientLoop: true,
     rulesText: '只有雨，没有钟。雨滴大约三到十秒落下一滴。\n'
         '全程不用动手，只管在心里默数。\n三分钟后雨停，会问你这个数。',
     introTags: '专注·白噪声',
@@ -85,8 +86,14 @@ class CountRainSession extends PracticeSession {
 
   @override
   void start() {
-    // 背景白噪声（鸟鸣虫鸣，约 -24dB）。
-    _ctx.sounds.startLoop(_ambientKey, gain: 0.25 * _ambientVolume);
+    // 背景音：默认鸟鸣虫鸣用约 -24dB 的环境音量；被所选 BGM 曲目替换时
+    // 就是用户在听的背景音乐，按其设置的音量播（复审 R1）。
+    _ctx.sounds.startLoop(
+      _ambientKey,
+      gain: _ambientKey == SoundCatalog.forestLoopKey
+          ? 0.25 * _ambientVolume
+          : _ambientVolume,
+    );
     const dropSounds = ['rain_drop_1', 'rain_drop_2', 'rain_drop_3'];
     for (final t in _rainTimesUs) {
       // 每滴雨从三段音色里随机选一个（新改进意见）。

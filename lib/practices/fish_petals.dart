@@ -61,9 +61,12 @@ class FishPetalsSession extends PracticeSession {
   int? _lastInputUs;
   Timer? _pollTimer;
 
-  // 视觉层事件脉冲：上钩一次 +1 / 收瓣成功一次 +1（俯视池塘层据此绑定）。
+  // 视觉层事件脉冲：上钩一次 +1 / 收瓣成功一次 +1 / 沉底一次 +1
+  // （俯视池塘层据此绑定状态；复审 R3：沉没事件由状态机发出，
+  // 声效不再依赖视觉动画是否在绘制）。
   int _hookPulse = 0;
   int _catchPulse = 0;
+  int _sinkPulse = 0;
 
   // 统计。
   int _petalsCaught = 0;
@@ -143,10 +146,10 @@ class FishPetalsSession extends PracticeSession {
         // "叮"后超时未收手：花瓣随波而去。
         if (_hookIsPetal && held > _catchWindowUs) {
           _missed++;
-          _restFrom(now);
+          _sinkAndRest(now);
         } else if (held > _hookTimeoutUs) {
           // "咚"后长时间握着不放：自动空竿休整，不把状态机吊死。
-          _restFrom(now);
+          _sinkAndRest(now);
         }
       case _RodState.idle:
       case _RodState.resting:
@@ -158,6 +161,15 @@ class FishPetalsSession extends PracticeSession {
     _state = _RodState.resting;
     _restEndUs = now + _restUs;
     notifyVisualChanged();
+  }
+
+  /// 上钩的东西到点沉底（复审 R3）：沉没声与视觉脉冲都由会话状态机在
+  /// 会话时间轴上发出——不依赖绘制帧率，关闭动画/无障碍模式下时机一致。
+  void _sinkAndRest(int now) {
+    _sinkPulse++;
+    _ctx.sounds.play(SoundCatalog.fishSinkKey, gain: 0.9);
+    _ctx.recorder.log('sink', {'petal': _hookIsPetal});
+    _restFrom(now);
   }
 
   void _hook(int now) {
@@ -228,7 +240,7 @@ class FishPetalsSession extends PracticeSession {
               Reward(
                 kind: RewardKind.petal,
                 id: rarity.id,
-                label: '花瓣（\${rarity.label}）',
+                label: '花瓣（${rarity.label}）',
               ),
             );
             _catchPulse++;
@@ -328,7 +340,7 @@ class FishPetalsSession extends PracticeSession {
               hookPulse: _hookPulse,
               hookIsPetal: _hookIsPetal,
               catchPulse: _catchPulse,
-              onSink: () => _ctx.sounds.play(SoundCatalog.fishSinkKey, gain: 0.9),
+              sinkPulse: _sinkPulse,
               holdSeconds: () {
                 if (_state != _RodState.casting) return 0.0;
                 return (_ctx.scheduler.nowUs() - _castStartUs) / 1e6;
@@ -440,7 +452,7 @@ class PetalBadge extends StatelessWidget {
 /// - 之后随甩杆时间延长，东西在一定距离随机游走，并逐渐有靠近浮漂的
 ///   趋势；每样东西速度不同，避免一起抵达。
 /// - 一个东西上钩（叮/咚脉冲）：其他东西缓慢远离浮漂、在附近游走；
-///   上钩的东西 3 秒内未钓起，沉下水底消失。
+///   到点未钓起时状态机发沉没脉冲，上钩者沉下水底消失。
 /// - 有东西消失后，等 3–8 秒在屏幕边缘刷新一个（不超过上限）。
 class _PondItem {
   _PondItem({required this.isPetal, required this.pos})
@@ -467,18 +479,16 @@ class _PondLayer extends StatefulWidget {
     required this.hookPulse,
     required this.hookIsPetal,
     required this.catchPulse,
+    required this.sinkPulse,
     required this.holdSeconds,
-    required this.onSink,
   });
 
   final bool showBuoy;
   final int hookPulse;
   final bool hookIsPetal;
   final int catchPulse;
+  final int sinkPulse;
   final double Function() holdSeconds;
-
-  /// 上钩的东西沉没消失时回调（播放沉没声，新改进意见）。
-  final VoidCallback onSink;
 
   @override
   State<_PondLayer> createState() => _PondLayerState();
@@ -496,8 +506,8 @@ class _PondLayerState extends State<_PondLayer>
   bool _buoyWasShown = false;
   int _hookSeen = 0;
   int _catchSeen = 0;
+  int _sinkSeen = 0;
   _PondItem? _hooked;
-  double _hookedFor = 0;
   bool _reduceMotion = false;
 
   static const int _maxPetals = 2;
@@ -605,7 +615,6 @@ class _PondLayerState extends State<_PondLayer>
       }
       if (nearest != null) {
         _hooked = nearest..hooked = true;
-        _hookedFor = 0;
         for (final item in _items) {
           if (item == nearest || item.sinking || item.leaving) continue;
           final d = item.pos - center;
@@ -627,17 +636,17 @@ class _PondLayerState extends State<_PondLayer>
       _hooked = null;
     }
 
-    // 上钩 3 秒未钓起：沉底消失。
-    if (_hooked != null) {
-      _hookedFor += dt;
-      if (_hookedFor >= 3) {
+    // 沉没脉冲（复审 R3）：状态机到点发来，上钩者沉底消失。
+    // 视觉层只消费状态，沉没时机不随帧率/动画开关漂移。
+    if (widget.sinkPulse != _sinkSeen) {
+      _sinkSeen = widget.sinkPulse;
+      if (_hooked != null && !_hooked!.sinking) {
         _hooked!
           ..hooked = false
           ..sinking = true;
         _scheduleRespawn();
-        widget.onSink();
-        _hooked = null;
       }
+      _hooked = null;
     }
 
     // 刷新计时。

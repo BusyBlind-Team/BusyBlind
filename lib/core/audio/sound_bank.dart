@@ -5,6 +5,12 @@ import 'package:audioplayers/audioplayers.dart' as ap;
 /// v0.1 用 audioplayers 的 AudioPool 实现（一次加载、多路复用、低延迟触发）；
 /// 后续替换为原生 AVAudioEngine / Oboe 或 soLoud 时接口不变。
 abstract class SoundBank {
+  /// 注册 key → asset 相对路径，只登记不加载。
+  ///
+  /// 供按需流式播放的长音轨使用（BGM、被曲目替换的环境循环）：注册后
+  /// startLoop 能找到资产；短音效的零延迟触发仍走 [preload]。
+  Future<void> register(Map<String, String> assetByKey);
+
   /// 预加载 key → asset 相对路径（AssetSource 形式，如 'sfx/muyu.mp3'）。
   Future<void> preload(Map<String, String> assetByKey);
 
@@ -24,6 +30,9 @@ abstract class SoundBank {
 /// 测试与静音模式用的空实现。
 class SilentSoundBank implements SoundBank {
   final List<String> played = [];
+
+  @override
+  Future<void> register(Map<String, String> assetByKey) async {}
 
   @override
   Future<void> preload(Map<String, String> assetByKey) async {}
@@ -60,6 +69,11 @@ class AudioPlayersSoundBank implements SoundBank {
   final Map<String, ap.AudioPlayer> _loops = {};
   final Map<String, String> _assets = {};
   final List<String> _pausedLoopKeys = [];
+
+  @override
+  Future<void> register(Map<String, String> assetByKey) async {
+    _assets.addAll(assetByKey);
+  }
 
   @override
   Future<void> preload(Map<String, String> assetByKey) async {

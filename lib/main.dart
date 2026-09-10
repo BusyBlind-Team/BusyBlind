@@ -20,10 +20,14 @@ Future<void> main() async {
   // 助眠模式次日补发的修为到账。
   store.takePendingMerit();
 
-  // 音效库：短音效全部预加载进内存池，禁止播放时解码。
-  // BGM（bgm_*）不进内存池——由 BgmPlayer 按需流式播放（第 17 轮自检：
-  // 5 首 80 秒曲目整段解码进内存会无谓占用大量内存）。
+  // 音效库：资源注册与短音效预解码分开（复审 R1）。
+  // 全部 key 先注册——听潮/数雨在选了曲目时用同一 BGM key 做环境循环，
+  // 潮起潮落的音量包络靠 startLoop/setLoopGain 作用在这条流式音轨上，
+  // 不注册就会静默失效。BGM（bgm_*）不预解码进内存池（第 17 轮自检：
+  // 5 首 80 秒曲目整段解码进内存会无谓占用大量内存），由环境循环/
+  // BgmPlayer 按需流式播放。
   final sounds = AudioPlayersSoundBank();
+  sounds.register(SoundCatalog.catalog);
   await sounds.preload({
     for (final e in SoundCatalog.catalog.entries)
       if (!e.key.startsWith('bgm_')) e.key: e.value,
