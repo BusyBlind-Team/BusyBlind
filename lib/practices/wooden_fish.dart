@@ -171,7 +171,7 @@ class WoodenFishSession extends PracticeSession {
           child: PracticeScene(
             kind: PracticeSceneKind.woodenFish,
             title: '木 鱼',
-            subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '\$_strikes / \$_totalStrikes 声',
+            subtitle: _strikes == 0 ? '第一声 · 由你敲响' : '$_strikes / $_totalStrikes 声',
             progress: _strikes / _totalStrikes,
             active: _strikes > 0,
             count: _strikes,
@@ -330,7 +330,7 @@ class _MuyuViewState extends State<_MuyuView> with SingleTickerProviderStateMixi
                 alignment: Alignment.bottomLeft,
                 angle: stickAngle,
                 child: Image.asset(
-                  'assets/images/敲木鱼的棒子.png',
+                  'assets/images/muyu_stick.png',
                   width: 150,
                   errorBuilder: (_, _, _) => const SizedBox(width: 150, height: 48),
                 ),
@@ -342,7 +342,7 @@ class _MuyuViewState extends State<_MuyuView> with SingleTickerProviderStateMixi
               child: ColorFiltered(
                 colorFilter: ColorFilter.mode(muyuTint, BlendMode.srcATop),
                 child: Image.asset(
-                  'assets/images/木鱼.png',
+                  'assets/images/muyu.png',
                   width: 190,
                   errorBuilder: (_, _, _) =>
                       const SizedBox(width: 190, height: 135),

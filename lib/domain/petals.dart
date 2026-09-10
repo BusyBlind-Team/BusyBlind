@@ -1,8 +1,30 @@
-import 'dart:math';
 import 'dart:ui';
 
 /// 花之稀有度（待对齐清单 #6：常见 / 稀有 / 奇珍）。
 enum FlowerRarity { common, rare, legendary }
+
+extension FlowerRarityKey on FlowerRarity {
+  /// 与花瓣稀有度共用的存储 id（common/rare/legendary）。
+  String get rarityKey => name;
+}
+
+/// 花瓣稀有度（新改进意见：钓到的花瓣带稀有度，常见 70% / 稀有 25% / 奇珍 5%）。
+/// 合成时消耗对应稀有度的花瓣。
+enum PetalRarity { common, rare, legendary }
+
+extension PetalRarityLabel on PetalRarity {
+  String get label => switch (this) {
+    PetalRarity.common => '常见',
+    PetalRarity.rare => '稀有',
+    PetalRarity.legendary => '奇珍',
+  };
+
+  /// AppStore/奖励里使用的存储 id。
+  String get id => name;
+}
+
+PetalRarity petalRarityById(String id) => PetalRarity.values
+    .firstWhere((r) => r.id == id, orElse: () => PetalRarity.common);
 
 /// 花的物种。花瓣本身不分物种；合成时按投入的瓣数决定从哪一档花池抽取。
 /// （待对齐清单 #6：4 瓣桂花/丁香，5 瓣桃/梨/樱/海棠，6 瓣迎春/水仙/百合，8 瓣莲花。）
@@ -128,32 +150,20 @@ const List<FlowerSpecies> kFlowerSpecies = [
 FlowerSpecies flowerById(String id) =>
     kFlowerSpecies.firstWhere((s) => s.id == id, orElse: () => kFlowerSpecies.first);
 
+/// 花种 id → 正式美术文件名（assets/art/flowers/<文件名>.webp）。
+/// 部分素材文件名与 camelCase 的 id 不一致（樱花=cherry、迎春=winter_jasmine，
+/// 复审 R4），此处显式映射；未列出的花种直接以 id 为文件名。
+const Map<String, String> kFlowerArtFileNames = {
+  'sakura': 'cherry',
+  'winterJasmine': 'winter_jasmine',
+};
+
+/// 花种 id 对应的正式美术资产路径。
+String flowerArtAsset(String id) =>
+    'assets/art/flowers/${kFlowerArtFileNames[id] ?? id}.webp';
+
 /// 通用花瓣色（花瓣已不分物种，视觉统一用这个柔和粉色）。
 const Color kGenericPetalColor = Color(0xFFEFC3C4);
 
 /// 合成可用的档位（升序）。
 const List<int> kCraftTiers = [4, 5, 6, 8];
-
-/// 稀有度抽取权重（拟定值：稀有约三分之一概率落到）。
-const double _kCommonWeight = 1.0;
-const double _kRareWeight = 0.35;
-
-/// 投入 [tierPetalCount] 片花瓣，从对应档位的花池按稀有度抽一朵。
-/// 池为空（如未来档位调整）时返回 null。
-FlowerSpecies? drawFlower(int tierPetalCount, Random rng) {
-  final pool = kFlowerSpecies
-      .where((s) => s.petals == tierPetalCount)
-      .toList();
-  if (pool.isEmpty) return null;
-  final weights = [
-    for (final s in pool)
-      s.rarity == FlowerRarity.common ? _kCommonWeight : _kRareWeight,
-  ];
-  final total = weights.fold<double>(0, (a, b) => a + b);
-  var roll = rng.nextDouble() * total;
-  for (var i = 0; i < pool.length; i++) {
-    roll -= weights[i];
-    if (roll <= 0) return pool[i];
-  }
-  return pool.last;
-}

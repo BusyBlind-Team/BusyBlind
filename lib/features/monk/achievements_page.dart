@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
 import '../../domain/achievements.dart';
-import '../../domain/merit.dart';
 import '../../domain/petals.dart';
+import '../../domain/merit.dart';
 import '../../theme.dart';
 import '../../widgets/petal_icon.dart';
 
@@ -63,18 +63,25 @@ class AchievementsPage extends ConsumerWidget {
           const SizedBox(height: 20),
           const _SectionTitle('花瓣图鉴'),
           Text(
-            '花瓣不分种类。攒够瓣数即可合成一朵花：'
-            '同一档内按稀有度抽取（常见易得、稀有难遇、奇珍可遇不可求）。\n'
-            '当前花瓣 ${store.petalCount} 片。好友交换走"友"（暂未开放）。',
+            '钓到的花瓣带稀有度（概率：常见 70% / 稀有 25% / 奇珍 5%）。'
+            '当前：常见 ${store.petalCountOf(PetalRarity.common)} · '
+            '稀有 ${store.petalCountOf(PetalRarity.rare)} · '
+            '奇珍 ${store.petalCountOf(PetalRarity.legendary)} 枚。'
+            '投入对应稀有度的瓣数，合成对应的花。好友交换走"友"（暂未开放）。',
             style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
           ),
           const SizedBox(height: 8),
+          // 每个组合一行：档位 × 稀有度（该组合有花才显示）。
           for (final tier in kCraftTiers)
-            CraftRow(
-              tierPetalCount: tier,
-              petalCount: store.petalCount,
-              onCraft: () => _craft(context, ref, tier),
-            ),
+            for (final rarity in PetalRarity.values)
+              if (kFlowerSpecies
+                  .any((f) => f.petals == tier && f.rarity.rarityKey == rarity.id))
+                CraftRow(
+                  tierPetalCount: tier,
+                  rarity: rarity,
+                  petalCount: store.petalCountOf(rarity),
+                  onCraft: () => _craft(context, ref, tier, rarity),
+                ),
           const SizedBox(height: 12),
           // 按稀有度依次排列：瓣数升档，档内常见在前（改进列表花名修正）。
           for (final species
@@ -94,8 +101,8 @@ class AchievementsPage extends ConsumerWidget {
     );
   }
 
-  void _craft(BuildContext context, WidgetRef ref, int tier) {
-    final drawn = ref.read(storeProvider).craftFlower(tier);
+  void _craft(BuildContext context, WidgetRef ref, int tier, PetalRarity rarity) {
+    final drawn = ref.read(storeProvider).craftFlower(tier, rarity);
     if (drawn == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

@@ -144,4 +144,38 @@ void main() {
       throwsA(isA<LlmException>()),
     );
   });
+
+  test('HTTP 200 但正文是数组 → 归一为 LlmException（复审 R6）', () async {
+    // jsonDecode 成功但 (body as Map) 抛 TypeError（属 Error），
+    // 必须在客户端边界归一，否则绕过页面的 on Exception 兜底。
+    respond(200, b: '[]');
+    await expectLater(
+      HttpLlmClient(config: makeConfig())
+          .chat(const [LlmMessage(role: 'user', content: 'hi')]),
+      throwsA(isA<LlmException>()),
+    );
+  });
+
+  test('choices 元素/content 类型异常 → LlmException（复审 R6）', () async {
+    respond(200, b: jsonEncode({'choices': ['not-a-map']}));
+    await expectLater(
+      HttpLlmClient(config: makeConfig())
+          .chat(const [LlmMessage(role: 'user', content: 'hi')]),
+      throwsA(isA<LlmException>()),
+    );
+
+    respond(
+      200,
+      b: jsonEncode({
+        'choices': [
+          {'message': {'content': 123}},
+        ],
+      }),
+    );
+    await expectLater(
+      HttpLlmClient(config: makeConfig())
+          .chat(const [LlmMessage(role: 'user', content: 'hi')]),
+      throwsA(isA<LlmException>()),
+    );
+  });
 }

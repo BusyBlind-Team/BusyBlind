@@ -81,8 +81,9 @@ class AppStore extends ChangeNotifier {
     if (!tutorialDone && hasHistory) {
       data['tutorialDone'] = true;
     }
-    // 花瓣口径迁移（待对齐清单 #6）：旧版按物种 Map<String,int> 存储，
-    // 新版花瓣不分物种只记总数——汇总旧 Map 各键值即可，不丢存量。
+    // 花瓣口径迁移（第 16 轮自检修正）：三段链 v0 物种 Map → v1 总数
+    // int → v2 按稀有度分桶。注意第二段读取的是 data['petals']（上一段
+    // 刚写入的 int），不是过期的局部变量；清零保证重复迁移幂等。
     final petals = data['petals'];
     if (petals is Map) {
       var total = 0;
@@ -90,6 +91,12 @@ class AppStore extends ChangeNotifier {
         total += v as int? ?? 0;
       }
       data['petals'] = total;
+    }
+    final petalsNow = data['petals'];
+    final byRarity = data['petalsByRarity'];
+    if (byRarity is Map && petalsNow is int && petalsNow > 0) {
+      byRarity['common'] = (byRarity['common'] as int? ?? 0) + petalsNow;
+      data['petals'] = 0;
     }
     // Key 分服务商保存（PR #14 复审 P1-2）：把升级前已填的 Key
     // 按其 baseUrl 播种进 llmKeys，避免老用户升级后丢 Key。
@@ -132,6 +139,9 @@ class AppStore extends ChangeNotifier {
     'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
     // 背景音乐设置：track = -2 无 / -1 随机 / 0..4 固定曲目；volume = 0..1。
     'bgm': data['bgm'] ?? {'track': -1, 'volume': 0.35},
+    // 花瓣按稀有度分桶（新改进意见：钓到概率 常见70%/稀有25%/奇珍5%）。
+    'petalsByRarity': data['petalsByRarity'] ??
+        {'common': 0, 'rare': 0, 'legendary': 0},
     // 各服务商（按 baseUrl）分别保存的 API Key，避免切换服务商串密钥。
     'llmKeys': data['llmKeys'] ?? <String, String>{},
   };
@@ -244,26 +254,38 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- 花瓣与图鉴（待对齐清单 #6：花瓣不分物种；按 4/5/6/8 瓣档位合成）----
+  // ---- 花瓣与图鉴（新改进意见：花瓣带稀有度；对应稀有度的瓣数合成对应花）----
 
-  int get petalCount => _data['petals']! as int;
+  /// 各稀有度花瓣存量，key 为 PetalRarity.id（common/rare/legendary）。
+  Map<String, int> get petalsByRarity =>
+      (_data['petalsByRarity']! as Map).cast<String, int>();
+
+  int petalCountOf(PetalRarity rarity) =>
+      petalsByRarity[rarity.id] ?? 0;
+
+  int get petalCount => petalsByRarity.values.fold(0, (a, b) => a + b);
 
   List<String> get flowers => (_data['flowers']! as List).cast<String>();
 
-  void addPetals(int n) {
-    if (n == 0) return;
-    _data['petals'] = petalCount + n;
+  void addPetal(PetalRarity rarity) {
+    final p = _data['petalsByRarity']! as Map;
+    p[rarity.id] = (p[rarity.id] as int? ?? 0) + 1;
     _save();
     notifyListeners();
   }
 
-  /// 投入 [tierPetalCount] 片花瓣合成一朵花：从对应档位花池按稀有度抽取。
-  /// 花瓣不足或档位无效返回 null（不扣花瓣）；成功则扣花瓣并记入图鉴。
-  FlowerSpecies? craftFlower(int tierPetalCount, {Random? rng}) {
-    if (petalCount < tierPetalCount) return null;
-    final drawn = drawFlower(tierPetalCount, rng ?? Random());
-    if (drawn == null) return null;
-    _data['petals'] = petalCount - tierPetalCount;
+  /// 投入 [tier] 枚 [rarity] 花瓣，合成该档位该稀有度的一朵花
+  ///（如 4 枚常见 → 桂花；8 枚奇珍 → 莲花）。花瓣不足或该组合没有花
+  /// 返回 null（不扣花瓣）；成功则扣花瓣并记入图鉴。
+  FlowerSpecies? craftFlower(int tier, PetalRarity rarity, {Random? rng}) {
+    if (petalCountOf(rarity) < tier) return null;
+    final pool = kFlowerSpecies
+        .where((f) => f.petals == tier && f.rarity.rarityKey == rarity.id)
+        .toList();
+    if (pool.isEmpty) return null;
+    final drawn = pool[(rng ?? Random()).nextInt(pool.length)];
+    final p = _data['petalsByRarity']! as Map;
+    p[rarity.id] = (p[rarity.id] as int? ?? 0) - tier;
     final flowers = _data['flowers']! as List;
     if (!flowers.contains(drawn.id)) {
       flowers.add(drawn.id);

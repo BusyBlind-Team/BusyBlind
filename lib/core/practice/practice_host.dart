@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
 import '../../domain/achievements.dart';
+import '../../domain/petals.dart';
 import '../../theme.dart';
 import '../audio/bgm_player.dart';
 import '../audio/event_scheduler.dart';
@@ -55,6 +56,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   // 修行 BGM（改进列表）：随机一首 + 顶部小字唱片机。
   final BgmPlayer _bgm = BgmPlayer();
   String _bgmName = '';
+  String _bgmTrackName = '';
   late final AnimationController _bgmSpin;
 
   @override
@@ -83,6 +85,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 环境音回退各自的默认音效。
     final store = ref.read(storeProvider);
     final resolved = SoundCatalog.resolveTrack(store.bgmTrackIndex);
+    _bgmTrackName = resolved?.name ?? '';
     final params = {
       ...widget.params,
       if (resolved != null) ...{
@@ -150,8 +153,12 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 修行 BGM：本局解析好的那首（"无"设置下不启动），放完隔一秒循环。
     // 只跳过音乐启动，绝不影响开始流程（复审 P1：此前 return 吞掉了
     // _running 置位，选"无"会卡在开始界面）。
+    // 听潮/数雨的会话内环境循环在选曲时就是这首曲子（音量包络的载体），
+    // 这里不再另起 BgmPlayer，避免两个声道同播同一首（复审 R1）；
+    // 但曲名与唱片动画照常展示——音乐确实在放，只是由环境循环承载
+    //（二轮审查 P2：指示器不能只认 _bgm.start）。
     final bgmAsset = _ctx?.params['bgmAsset'] as String?;
-    if (bgmAsset != null) {
+    if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
       _bgm
           .start(
             asset: bgmAsset,
@@ -163,6 +170,11 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
           _bgmSpin.repeat();
         }
       });
+    } else if (bgmAsset != null) {
+      if (mounted) {
+        setState(() => _bgmName = _bgmTrackName);
+      }
+      _bgmSpin.repeat();
     }
     setState(() => _running = true);
   }
@@ -218,23 +230,12 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
 
     final maxMerit = _session.manifest.meritBase * 3;
     final merit = result.merit.clamp(0, maxMerit);
-
-    if (result.note == 'sleep_mode') {
-      // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
-      store.queuePendingMerit(merit);
-      try {
-        await sounds.stopLoop(SoundCatalog.tideLoopKey);
-      } on Exception {
-        // 循环已停则忽略。
-      }
-      if (mounted) {
-        Navigator.of(context).maybePop();
-      }
-      return;
-    }
+    final sleepMode = result.note == 'sleep_mode';
 
     try {
-      store.addMerit(merit);
+      // 会话历史入库是公共结算步骤（复审 R2）：成就口径读的是
+      // store.sessions，助眠局不入库，潮涌潮落/水之呼吸永远不解锁，
+      // 统计与报告也会漏计这一次。
       store.addSession(
         practiceId: _session.manifest.id,
         merit: merit,
@@ -245,12 +246,20 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       for (final reward in result.extraRewards) {
         switch (reward.kind) {
           case RewardKind.petal:
-            // 花瓣不分物种（待对齐清单 #6），每片 +1 总数。
-            store.addPetals(1);
+            // 花瓣带稀有度（新改进意见）：reward.id = common/rare/legendary。
+            store.addPetal(petalRarityById(reward.id));
           case RewardKind.slip:
             break;
         }
       }
+      if (sleepMode) {
+        // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
+        store.queuePendingMerit(merit);
+      } else {
+        store.addMerit(merit);
+      }
+      // 成就评估对所有模式一致（含助眠，第 13 轮自检；历史口径靠上面
+      // 刚入库的会话，复审 R2）。
       final freshIds = evaluateAchievements(
         store,
         lastResult: result,
@@ -260,6 +269,18 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         for (final id in freshIds)
           kAchievements.firstWhere((a) => a.id == id).title,
       ];
+
+      if (sleepMode) {
+        try {
+          await sounds.stopLoop(SoundCatalog.tideLoopKey);
+        } on Exception {
+          // 循环已停则忽略。
+        }
+        if (mounted) {
+          Navigator.of(context).maybePop();
+        }
+        return;
+      }
 
       // 声音语言：磬两声 = 结束 / 可以睁眼。
       await sounds.play(SoundCatalog.chimeDoubleKey);

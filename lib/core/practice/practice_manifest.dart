@@ -16,6 +16,7 @@ class PracticeManifest {
     this.allowManualEnd = false,
     this.introTags = '',
     this.intro = '',
+    this.usesAmbientLoop = false,
   });
 
   /// 唯一 id，如 'wooden_fish'。
@@ -50,4 +51,10 @@ class PracticeManifest {
 
   /// 修行介绍正文（修行列表详情展示；直接取自《修行介绍》文案）。
   final String intro;
+
+  /// 会话是否持续播放一条环境循环轨（听潮/数雨）。
+  ///
+  /// 选了 BGM 曲目时，这条循环被替换为所选曲目本身，宿主便不再另起
+  /// BgmPlayer——否则两个声道同时播同一首（复审 R1）。
+  final bool usesAmbientLoop;
 }

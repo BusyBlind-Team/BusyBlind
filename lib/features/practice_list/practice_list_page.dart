@@ -7,6 +7,15 @@ import '../../core/practice/practice_registry.dart';
 import '../../core/practice/practice_types.dart';
 import '../../theme.dart';
 
+/// 修行插画（iconKey → 正式美术）。打坐不在列表、静坐已移出列表，均无插画。
+const _kPracticeArt = <String, String>{
+  'wooden_fish': 'assets/art/illustrations/play_wooden_fish.webp',
+  'count_rain': 'assets/art/illustrations/count_rain.webp',
+  'tide_breath': 'assets/art/illustrations/tide_breath.webp',
+  'cross_river': 'assets/art/illustrations/cross_river.webp',
+  'fish_petals': 'assets/art/illustrations/fish_petals.webp',
+};
+
 /// 修 · 修行列表：纵向滑动列表，点击方块立刻滑动使其居中，
 /// 展开详情（图标、训练类型、耗时）与"确定 / 取消"按钮。
 class PracticeListPage extends ConsumerStatefulWidget {
@@ -17,16 +26,16 @@ class PracticeListPage extends ConsumerStatefulWidget {
 }
 
 class _PracticeListPageState extends ConsumerState<PracticeListPage> {
-  final List<PracticeManifest> _manifests =
-      practiceFactories.map((f) => f().manifest).toList(growable: false);
+  final List<PracticeManifest> _manifests = practiceFactories
+      .map((f) => f().manifest)
+      .toList(growable: false);
   final Map<int, GlobalKey> _itemKeys = {};
 
   int? _selected;
   int _breathTier = 0;
   bool _sleepMode = false;
 
-  GlobalKey _keyFor(int index) =>
-      _itemKeys.putIfAbsent(index, GlobalKey.new);
+  GlobalKey _keyFor(int index) => _itemKeys.putIfAbsent(index, GlobalKey.new);
 
   void _onTapItem(int index) {
     if (_selected == index) {
@@ -73,17 +82,21 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
         itemBuilder: (context, index) {
           final m = _manifests[index];
           final selected = _selected == index;
+          final art = _kPracticeArt[m.iconKey];
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Column(
               children: [
-                // 名称方块（横向矩形）。
+                // 名称方块（横向矩形）：左侧插画缩略 + 名称与标签。
                 GestureDetector(
                   key: _keyFor(index),
                   onTap: () => _onTapItem(index),
                   child: Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 22,
+                      vertical: 18,
+                    ),
                     decoration: BoxDecoration(
                       color: selected
                           ? const Color(0x26D8B36A)
@@ -95,6 +108,20 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
                     ),
                     child: Row(
                       children: [
+                        if (art != null) ...[
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.asset(
+                              art,
+                              width: 48,
+                              height: 48,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, _, _) =>
+                                  const SizedBox(width: 48, height: 48),
+                            ),
+                          ),
+                          const SizedBox(width: 14),
+                        ],
                         Expanded(
                           child: Text(
                             m.name,
@@ -107,8 +134,13 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
                           ),
                         ),
                         Text(
-                          m.introTags.isNotEmpty ? m.introTags : m.tags.map((t) => t.label).join(' · '),
-                          style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
+                          m.introTags.isNotEmpty
+                              ? m.introTags
+                              : m.tags.map((t) => t.label).join(' · '),
+                          style: const TextStyle(
+                            color: AppTheme.inkFaint,
+                            fontSize: 12,
+                          ),
                         ),
                       ],
                     ),
@@ -118,8 +150,9 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
                 AnimatedCrossFade(
                   duration: const Duration(milliseconds: 220),
                   sizeCurve: Curves.easeOut,
-                  crossFadeState:
-                      selected ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+                  crossFadeState: selected
+                      ? CrossFadeState.showSecond
+                      : CrossFadeState.showFirst,
                   firstChild: const SizedBox(width: double.infinity, height: 0),
                   secondChild: _PracticeDetail(
                     manifest: m,
@@ -182,6 +215,20 @@ class _PracticeDetail extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 详情横幅：修行插画（居中构图裁为横幅）。
+          if (_kPracticeArt[manifest.iconKey] != null) ...[
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Image.asset(
+                _kPracticeArt[manifest.iconKey]!,
+                width: double.infinity,
+                height: 132,
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => const SizedBox(height: 0),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           Row(
             children: [
               Icon(
@@ -197,7 +244,10 @@ class _PracticeDetail extends StatelessWidget {
                 style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
               ),
               const Spacer(),
-              Text(_lengthLabel, style: const TextStyle(color: AppTheme.inkDim, fontSize: 13)),
+              Text(
+                _lengthLabel,
+                style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
+              ),
             ],
           ),
           if (manifest.introTags.isNotEmpty)
@@ -205,7 +255,11 @@ class _PracticeDetail extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6),
               child: Text(
                 manifest.introTags,
-                style: const TextStyle(color: AppTheme.goldDim, fontSize: 12, letterSpacing: 2),
+                style: const TextStyle(
+                  color: AppTheme.goldDim,
+                  fontSize: 12,
+                  letterSpacing: 2,
+                ),
               ),
             ),
           if (manifest.needsHeadphones)
@@ -215,8 +269,10 @@ class _PracticeDetail extends StatelessWidget {
                 children: [
                   Icon(Icons.headphones, color: AppTheme.inkFaint, size: 16),
                   SizedBox(width: 6),
-                  Text('建议佩戴耳机（时机判定依赖立体声与低延迟）',
-                      style: TextStyle(color: AppTheme.inkFaint, fontSize: 12)),
+                  Text(
+                    '建议佩戴耳机（时机判定依赖立体声与低延迟）',
+                    style: TextStyle(color: AppTheme.inkFaint, fontSize: 12),
+                  ),
                 ],
               ),
             ),
@@ -225,17 +281,14 @@ class _PracticeDetail extends StatelessWidget {
               padding: const EdgeInsets.only(top: 10),
               child: Text(
                 manifest.intro,
-                style: const TextStyle(color: AppTheme.inkDim, fontSize: 13, height: 1.7),
+                style: const TextStyle(
+                  color: AppTheme.inkDim,
+                  fontSize: 13,
+                  height: 1.7,
+                ),
               ),
             ),
-          if (manifest.rulesText != null)
-            Padding(
-              padding: const EdgeInsets.only(top: 10),
-              child: Text(
-                manifest.rulesText!,
-                style: const TextStyle(color: AppTheme.inkDim, fontSize: 13, height: 1.6),
-              ),
-            ),
+          // 旧版玩法说明段已按新改进意见删除（介绍文本以 manifest.intro 为准）。
           if (manifest.id == 'tide_breath') ...[
             // 呼吸法选择已移到开始界面（改进列表）。
             const SizedBox(height: 6),

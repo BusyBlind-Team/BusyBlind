@@ -132,9 +132,19 @@ class HttpLlmClient implements LlmClient {
     } catch (_) {
       throw LlmException('服务返回了无法解析的内容');
     }
-    final content =
-        ((body as Map)['choices'] as List?)?.cast<Map>().firstOrNull?['message'];
-    final text = content is Map ? content['content'] as String? : null;
+    // 边界校验响应结构（复审 R6）：兼容接口可能返回数组正文、choices
+    // 元素或 content 类型异常。强转失败抛的是 TypeError（属 Error 不是
+    // Exception），会绕过页面的 on Exception 兜底，这里统一归一成
+    // LlmException。
+    final String? text;
+    try {
+      final choices = (body as Map?)?['choices'];
+      final first = choices is List && choices.isNotEmpty ? choices.first : null;
+      final content = first is Map ? first['message'] : null;
+      text = content is Map ? content['content'] as String? : null;
+    } catch (_) {
+      throw LlmException('服务返回了异常的结构，请重试');
+    }
     if (text == null || text.trim().isEmpty) {
       throw LlmException('模型没有返回内容，请重试');
     }

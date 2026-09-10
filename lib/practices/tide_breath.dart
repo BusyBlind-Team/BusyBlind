@@ -99,6 +99,7 @@ class TideBreathSession extends PracticeSession {
     meritBase: 10,
     iconKey: 'tide_breath',
     allowManualEnd: true,
+    usesAmbientLoop: true,
     rulesText: '潮涨渐强时，按住屏幕吸气；潮落渐弱时，松开屏幕呼气。憋气段请保持按住。\n咬合的瞬间，会有一层风铃。',
     introTags: '呼吸·助眠·白噪声',
     intro: '潮涌，潮落，这是自然的呼吸。让气息和自然同步，能带来安稳的睡眠。在这放松的五分钟内，循着潮声呼吸吧。',

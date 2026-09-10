@@ -2,8 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 
-/// 盲僧立绘占位：几何切面的僧人剪影（打坐姿态）。
-/// v0.1 用 CustomPainter 占位，接美术后替换为正式立绘资源。
+/// 盲僧立绘：正式美术（assets/art/ui/monk.webp）；
+/// 资源缺失时回退到 v0.1 的几何切面僧人剪影。`dim` 用于打坐页压暗显示。
 class MonkFigure extends StatelessWidget {
   const MonkFigure({super.key, this.size = 180, this.dim = false});
 
@@ -12,11 +12,18 @@ class MonkFigure extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
+    Widget art = Image.asset(
+      'assets/art/ui/monk.webp',
       width: size,
-      height: size,
-      child: CustomPaint(painter: _MonkPainter(dim: dim)),
+      fit: BoxFit.contain,
+      errorBuilder: (_, _, _) => SizedBox(
+        width: size,
+        height: size,
+        child: CustomPaint(painter: _MonkPainter(dim: dim)),
+      ),
     );
+    if (dim) art = Opacity(opacity: 0.3, child: art);
+    return art;
   }
 }
 

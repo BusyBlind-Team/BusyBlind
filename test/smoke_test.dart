@@ -6,6 +6,7 @@ import 'package:busy_blind/di.dart';
 import 'package:busy_blind/features/monk/sign_page.dart';
 import 'package:busy_blind/features/monk/meditation_page.dart';
 import 'package:busy_blind/practices/tide_breath.dart';
+import 'package:busy_blind/practices/fish_petals.dart';
 import 'package:busy_blind/features/me/me_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
@@ -156,6 +157,69 @@ void main() {
     expect(find.text('退出'), findsOneWidget);
     expect(find.text('开始'), findsNothing);
     expect(find.textContaining('木 鱼'), findsOneWidget);
+  });
+
+  for (final reduced in [false, true]) {
+    testWidgets('钓花宿主拖动即时更新浮标与击散（减少动态效果=$reduced）', (tester) async {
+      final store = AppStore.inMemory()
+        ..markTutorialSeen('fish_petals')
+        ..setBgmSettings(track: -2);
+      await tester.pumpWidget(harness(
+        store: store,
+        home: Builder(builder: (context) => MediaQuery(
+          data: MediaQuery.of(context).copyWith(disableAnimations: reduced),
+          child: PracticeHostPage(factory: FishPetalsSession.new),
+        )),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('开始'));
+      await tester.pump();
+      final dynamic pond = tester.allStates.firstWhere(
+        (s) => s.runtimeType.toString() == '_PondLayerState',
+      );
+      final gesture = await tester.startGesture(const Offset(300, 300));
+      await tester.pump();
+      expect(pond.debugBuoy, const Offset(300, 300));
+      for (final target in [const Offset(360, 320), const Offset(420, 340)]) {
+        final before = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
+        await gesture.moveTo(target);
+        // 只处理真实通知，不主动重建宿主，也不等待上钩/松手事件。
+        await tester.pump();
+        expect(pond.debugBuoy, target);
+        final after = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
+        for (var i = 0; i < before.length; i++) {
+          if (reduced) {
+            expect(after[i].vel, Offset.zero);
+          } else {
+            final radial = before[i].pos - target;
+            final delta = after[i].vel - before[i].vel;
+            expect(delta.dx * radial.dx + delta.dy * radial.dy, greaterThan(0));
+          }
+        }
+      }
+      await gesture.up();
+      await tester.pumpWidget(const SizedBox());
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('听潮选了 BGM：环境循环承载曲目，曲名唱片指示照常显示（二轮审查 P2）', (
+    tester,
+  ) async {
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('tide_breath')
+      ..setBgmSettings(track: 2); // 固定"风铃"
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+
+    // 听潮是 usesAmbientLoop 修行：不另起 BgmPlayer，但曲名指示
+    // 必须照常出现（唱片动画持续旋转，故不能用 pumpAndSettle）。
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(find.text('退出'), findsOneWidget);
+    expect(find.text('♪ 风铃'), findsOneWidget);
   });
 
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {

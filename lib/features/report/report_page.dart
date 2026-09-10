@@ -117,6 +117,12 @@ class _ReportPageState extends ConsumerState<ReportPage> {
     } on LlmException catch (e) {
       // 生成期间可能已离开页面：先查 mounted 再 setState（复审 P2-5）。
       if (mounted) setState(() => _error = e.message);
+    } on Exception catch (e) {
+      // 非预期异常也给出出路，不吞进异步黑洞（第 12 轮自检）。
+      debugPrint('report generate failed: $e');
+      if (mounted) {
+        setState(() => _error = '生成失败，请重试，或改用本地报告。');
+      }
     } finally {
       if (mounted) setState(() => _generating = false);
     }

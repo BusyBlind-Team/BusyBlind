@@ -8,6 +8,7 @@ import 'package:busy_blind/core/audio/sound_bank.dart';
 import 'package:busy_blind/core/audio/sound_catalog.dart';
 import 'package:busy_blind/core/practice/practice_registry.dart';
 import 'package:busy_blind/core/practice/practice_session.dart';
+import 'package:busy_blind/domain/petals.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:busy_blind/widgets/practice_scene.dart';
 import 'package:flutter/material.dart';
@@ -54,8 +55,8 @@ void main() {
   tearDownAll(() => goldenFileComparator = defaultGoldenComparator);
 
   test('声音目录全部切到 MP3，且总体积至少减少一半', () {
-    // 16 个 SFX (mp3) + 5 首 BGM (m4a)。
-    expect(SoundCatalog.catalog, hasLength(21));
+    // SFX (mp3) + 5 首 BGM (m4a)。
+    expect(SoundCatalog.catalog, hasLength(24));
     expect(
       SoundCatalog.catalog.entries.every(
         (e) =>
@@ -86,6 +87,33 @@ void main() {
           .where((f) => f.path.endsWith('.wav')),
       isEmpty,
     );
+  });
+
+  test('资源注册与预解码分开：BGM 只注册即可做环境循环（复审 R1）', () async {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    final bank = AudioPlayersSoundBank();
+    await bank.register(SoundCatalog.catalog);
+    await bank.preload(const {}); // BGM 不进预解码内存池
+    final key = SoundCatalog.catalog.keys.firstWhere((k) => k.startsWith('bgm_'));
+    // 注册过但未预解码：startLoop 应能查到资产并走到流式播放器创建
+    // （测试环境无音频后端，到平台层报缺插件即可）；绝不允许再触发
+    // “未预加载音轨”断言——那正是复审 R1 里听潮包络的失效点。
+    await expectLater(
+      bank.startLoop(key),
+      throwsA(isNot(isA<AssertionError>())),
+    );
+    bank.dispose();
+  });
+
+  test('每个花种 id 都能解析到已提交的正式美术（复审 R4）', () {
+    for (final species in kFlowerSpecies) {
+      final path = flowerArtAsset(species.id);
+      expect(
+        File(path).existsSync(),
+        isTrue,
+        reason: '缺少正式美术：$path（花种 ${species.id}）',
+      );
+    }
   });
 
   test('玩法输入会递增视觉版本', () async {
@@ -238,9 +266,9 @@ void main() {
       );
     }
   });
-  testWidgets('中文命名图片资产与 BGM 可加载', (tester) async {
+  testWidgets('图片与 BGM 资产可加载（ASCII 资产名，规避安卓非 ASCII 路径问题）', (tester) async {
     await tester.runAsync(() async {
-      final images = ['木鱼', '敲木鱼的棒子', '菩提叶', '雨滴'];
+      final images = ['muyu', 'muyu_stick', 'bodhi_leaf', 'raindrop'];
       for (final name in images) {
         final data = await rootBundle.load('assets/images/$name.png');
         expect(data.lengthInBytes, greaterThan(0), reason: name);
