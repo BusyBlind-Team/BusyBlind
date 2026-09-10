@@ -568,6 +568,95 @@ void main() {
           ),
         );
 
+    for (final hz in [30, 60, 90, 120]) {
+      testWidgets('池塘按真实时间推进：$hz Hz 与重建不改变涟漪寿命', (tester) async {
+        final (ctx, _, _, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        await session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        await pumpVisual(tester, session);
+        await tester.pump();
+        session.onInput(tapAt(const Offset(400, 300)));
+        await pumpVisual(tester, session);
+        final pond = pondState(tester);
+        final initial = List<double>.from(pond.debugRippleAges as List);
+        // 任意次数的父级重建不应推进模拟时间。
+        for (var i = 0; i < 5; i++) {
+          await pumpVisual(tester, session);
+        }
+        expect(pond.debugRippleAges, initial);
+        for (var i = 0; i < hz; i++) {
+          await tester.pump(Duration(microseconds: (1000000 / hz).round()));
+        }
+        expect((pond.debugRippleAges as List).first, closeTo(1, 0.002));
+        // 长帧限幅，不能把一秒停顿全部积分为一次位移。
+        await tester.pump(const Duration(seconds: 1));
+        expect((pond.debugRippleAges as List).first, closeTo(1.05, 0.002));
+        scheduler.dispose();
+        session.dispose();
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+
+    for (final accessible in [false, true]) {
+      testWidgets('动态效果切换清除惯性和涟漪，并停止池塘 ticker：accessible=$accessible', (tester) async {
+        final (ctx, _, _, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        await session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        var reduced = false;
+        Future<void> repump() => tester.pumpWidget(MaterialApp(
+          home: Builder(builder: (outer) => MediaQuery(
+            data: MediaQuery.of(outer).copyWith(
+              disableAnimations: reduced && !accessible,
+              accessibleNavigation: reduced && accessible,
+            ),
+            child: Builder(builder: (inner) => session.buildVisual(inner)),
+          )),
+        ));
+        await repump();
+        await tester.pump();
+        session.onInput(tapAt(const Offset(400, 300)));
+        await repump();
+        final pond = pondState(tester);
+        expect(pond.debugIsAnimating, true);
+        expect(pond.debugRippleAges, isNotEmpty);
+        reduced = true;
+        await repump();
+        expect(pond.debugIsAnimating, false);
+        expect(pond.debugRippleAges, isEmpty);
+        // 静态模式重复抛竿、拖动仍消费事件，但不积累隐藏运动。
+        for (var i = 0; i < 20; i++) {
+          session.onInput(release(i * 3000000));
+          await repump();
+          session.onInput(tapAt(const Offset(400, 300), sessionUs: (i + 1) * 3000000));
+          session.onInput(moveTo(const Offset(420, 320), sessionUs: (i + 1) * 3000000));
+          await repump();
+        }
+        expect(pond.debugRippleAges, isEmpty);
+        final before = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
+        expect(before.every((i) => i.vel == Offset.zero), true);
+        await tester.pump(const Duration(seconds: 10));
+        expect(pond.debugItems, before);
+        reduced = false;
+        await repump();
+        await tester.pump();
+        expect(pond.debugIsAnimating, true);
+        expect(pond.debugRippleAges, isEmpty);
+        expect(pond.debugItems, before); // 重启建立时间基准，不追赶停用时间。
+        await tester.pump(const Duration(milliseconds: 16));
+        final after = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
+        for (var i = 0; i < before.length; i++) {
+          expect((after[i].pos - before[i].pos).distance, lessThan(1));
+        }
+        scheduler.dispose();
+        session.dispose();
+        await tester.pumpWidget(const SizedBox());
+      });
+    }
+
     testWidgets('浮标落在手指处并跟随拖动（已拍板玩法，二轮审查 P1）', (
       tester,
     ) async {
@@ -650,15 +739,13 @@ void main() {
       final after = items();
       expect(after.length, before.length);
 
-      // 逐帧运动里击散在位移积分之前、之后统一乘 pow(0.5, dt) 阻尼，
-      // 故"径向速度增量 / 阻尼"应恰好等于击散冲量 300 × falloff。
-      final damp = pow(0.5, 1 / 60).toDouble();
+      // 这里只重建、未推进时间：径向速度增量就是击散冲量，不能暗中积分一帧。
       for (var i = 0; i < after.length; i++) {
         final radial = before[i].pos - center;
         final dist = radial.distance;
         final dir = radial / dist;
         double dot(Offset v) => v.dx * dir.dx + v.dy * dir.dy;
-        final measured = dot(after[i].vel) / damp - dot(before[i].vel);
+        final measured = dot(after[i].vel) - dot(before[i].vel);
         final falloff = (1 - dist / diagonal).clamp(0.0, 1.0);
         final expected = 300 * falloff;
         final legacy = 300 * (1 - dist / 800).clamp(0.0, 1.0);
@@ -666,7 +753,7 @@ void main() {
         // 归零；对角线(1000)归一才让"按距离不同散开"在整屏都成立。
         expect(
           measured,
-          closeTo(expected, 1.5),
+          closeTo(expected, 1e-6),
           reason: '距浮标 ${dist.toStringAsFixed(0)}px 处的击散冲量不符：'
               'longestSide 归一应为 ${legacy.toStringAsFixed(1)}，'
               '对角线归一应为 ${expected.toStringAsFixed(1)}',

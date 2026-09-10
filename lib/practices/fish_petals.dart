@@ -540,6 +540,7 @@ class _PondLayer extends StatefulWidget {
 class _PondLayerState extends State<_PondLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _frame;
+  Duration? _lastFrameTime;
   final List<_PondItem> _items = [];
   final List<({Offset pos, double age})> _ripples = [];
   final List<double> _spawnTimers = [];
@@ -566,14 +567,50 @@ class _PondLayerState extends State<_PondLayer>
     _frame = AnimationController(
       vsync: this,
       duration: const Duration(days: 365),
-    )..repeat();
+    )..addListener(_onFrame);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final media = MediaQuery.maybeOf(context);
+    final reduceMotion = (media?.disableAnimations ?? false) ||
+        (media?.accessibleNavigation ?? false);
+    if (reduceMotion != _reduceMotion || !_frame.isAnimating) {
+      _reduceMotion = reduceMotion;
+      _lastFrameTime = null;
+      if (_reduceMotion) {
+        _frame.stop();
+        _ripples.clear();
+        for (final item in _items) {
+          item.vel = Offset.zero;
+        }
+      } else {
+        _frame.repeat();
+      }
+    }
+  }
+
+  void _onFrame() {
+    final now = _frame.lastElapsedDuration;
+    if (_reduceMotion || now == null) return;
+    final previous = _lastFrameTime;
+    _lastFrameTime = now;
+    if (previous == null) return;
+    // 长帧最多推进 50ms，避免恢复前台时物件瞬移；小步积分保持惯性稳定。
+    var remaining = ((now - previous).inMicroseconds / 1e6).clamp(0.0, 0.05);
+    if (remaining == 0) return;
+    setState(() {
+      while (remaining > 1e-9) {
+        final dt = min(remaining, 1 / 120);
+        _step(dt);
+        remaining -= dt;
+      }
+    });
   }
 
   void _ensureSeeded() {
     final media = MediaQuery.maybeOf(context);
-    _reduceMotion =
-        (media?.disableAnimations ?? false) ||
-        (media?.accessibleNavigation ?? false);
     final s = media?.size ?? Size.zero;
     if (s == Size.zero || s == _size && _items.isNotEmpty) return;
     _size = s;
@@ -656,10 +693,12 @@ class _PondLayerState extends State<_PondLayer>
 
     // 浮标落水：涟漪 + 击散所有漂浮物（力度按距离衰减，已拍板）。
     if (buoyShown && !_buoyWasShown) {
-      for (var i = 0; i < 3; i++) {
-        _ripples.add((pos: center, age: -i * 0.18));
+      if (!_reduceMotion) {
+        for (var i = 0; i < 3; i++) {
+          _ripples.add((pos: center, age: -i * 0.18));
+        }
+        _scatterFrom(center, 1.0);
       }
-      _scatterFrom(center, 1.0);
       // 兜底脱钩：上次空竿的上钩者不因引用清空而永久卡在 hooked 态。
       _hooked?.hooked = false;
       _hooked = null;
@@ -669,7 +708,7 @@ class _PondLayerState extends State<_PondLayer>
     // 拖动浮标脉冲：移动过就散开漂浮物（已拍板）。
     if (widget.dragPulse != _dragSeen) {
       _dragSeen = widget.dragPulse;
-      if (buoyShown) _scatterFrom(center, 0.5);
+      if (buoyShown && !_reduceMotion) _scatterFrom(center, 0.5);
     }
 
     // 上钩脉冲：把最靠近浮标的同类型东西绑为上钩者。
@@ -779,7 +818,7 @@ class _PondLayerState extends State<_PondLayer>
         } else {
           item.pos += Offset(cos(item.phase) * 3 * dt, sin(item.phase) * 3 * dt);
         }
-        item.vel *= 0.9;
+        item.vel *= pow(0.9, dt * 60).toDouble();
         continue;
       }
 
@@ -823,11 +862,11 @@ class _PondLayerState extends State<_PondLayer>
     if (_items.isEmpty && _size != Size.zero) {
       _ensureSeeded();
     }
+    _syncState();
     if (_reduceMotion) {
       // 无动画/无障碍导航：跳过逐帧运动，但状态同步（浮标位置、
       // 上钩/收取/沉没/脱钩脉冲）随 widget 更新照常消费，只画静态帧
       //（三轮审查 P1-1：脉冲全在 _syncState，不能因此全部失效）。
-      _syncState();
       // 静态帧没有"下沉/收拢"的过程：_step 的 sinkT/leaveT 不推进，
       // 沉没与收取的物件会以全不透明残影永远留在屏上（画家按
       // 1 - sinkT/leaveT 取透明度，计数器停在 0 → 不消失）。
@@ -844,19 +883,13 @@ class _PondLayerState extends State<_PondLayer>
         ),
       );
     }
-    return AnimatedBuilder(
-      animation: _frame,
-      builder: (context, _) {
-        _step(1 / 60);
-        return CustomPaint(
-          painter: _PondPainter(
-            items: _items,
-            ripples: _ripples,
-            showBuoy: widget.showBuoy && _center != null,
-            center: _center ?? Offset.zero,
-          ),
-        );
-      },
+    return CustomPaint(
+      painter: _PondPainter(
+        items: _items,
+        ripples: _ripples,
+        showBuoy: widget.showBuoy && _center != null,
+        center: _center ?? Offset.zero,
+      ),
     );
   }
 
@@ -865,6 +898,12 @@ class _PondLayerState extends State<_PondLayer>
     _frame.dispose();
     super.dispose();
   }
+
+  @visibleForTesting
+  bool get debugIsAnimating => _frame.isAnimating;
+
+  @visibleForTesting
+  List<double> get debugRippleAges => _ripples.map((r) => r.age).toList();
 
   /// 处于上钩态（hooked 标记未复位）的漂浮物数量。
   /// 空竿收杆后应为 0——卡在 hooked 态会占名额、停在浮标边打转
