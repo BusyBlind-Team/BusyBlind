@@ -347,6 +347,30 @@ void main() {
       scheduler.dispose();
     });
 
+    test('事件延迟派送：引导结束前按下、结束后才派送，仍被忽略（P2）', () async {
+      final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+      final session = CrossRiverSession(rng: Random(7));
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      // 事件发生在引导期内，但界面卡顿使其在引导结束后才被处理。
+      final earlyPressUs = session.guideEndUs - 200000;
+      expect(earlyPressUs, greaterThan(0));
+      reachGuideEnd(clock, session);
+      expect(clock.nowUs(), greaterThanOrEqualTo(session.guideEndUs));
+
+      session.onInput(tap(earlyPressUs));
+      // 按处理时刻判断会把这个事件当成合法起手；按事件时刻判断则忽略。
+      expect(sounds.played, isNot(contains('river_3')),
+          reason: '引导结束前发生的按下不应触发跟随音');
+
+      // 同一处理时刻下的合法起手仍然照常生效。
+      session.onInput(tap(session.guideEndUs));
+      expect(sounds.played, contains('river_3'));
+      scheduler.dispose();
+    });
+
     test('音频延迟补偿：判定窗口在基础窗口上放宽 250ms', () async {
       FinishReason? reason;
       final (ctx, clock, _, scheduler) = makeContext((r) => reason = r);
@@ -667,6 +691,66 @@ void main() {
       // 远处（170px 半径外）：力度为零，不会被击飞到屏幕边缘。
       final far = items.firstWhere((e) => e.pos == const Offset(40, 520));
       expect(far.vel, Offset.zero);
+      scheduler.dispose();
+      session.dispose();
+    });
+
+    test('减少动态效果：会话时间照常推进池塘，物件漂进判定半径（P1）', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        final pond = session.debugPond;
+        // 视图已布局（静帧也照常拿到尺寸）；只留一件在判定半径外的花瓣。
+        pond.resize(const Size(400, 600));
+        pond.debugClear();
+        const buoy = Offset(200, 300);
+        pond.debugAddItem(petal: true, pos: const Offset(200, 500));
+
+        session.onInput(tapAt(buoy));
+        final item = pond.nearestOf(true)!;
+        final before = (item.pos - buoy).distance;
+        expect(before, greaterThan(PondModel.hookRadius));
+
+        // 只推进会话时钟与 100ms 轮询：界面动画完全不参与
+        //（关闭动画后 layer 的 ticker 是停的）。旧实现里模拟只由绘制帧
+        // 推进，这里物件会一动不动、永远进不了判定半径。
+        for (var i = 0; i < 40; i++) {
+          clock.advanceUs(100000);
+          async.elapse(const Duration(milliseconds: 100));
+        }
+        final after = (item.pos - buoy).distance;
+        expect(after, lessThan(before - 5),
+            reason: '会话时间应推进池塘模拟：$before → $after');
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
+
+    testWidgets('连续两次抛竿都击散起涟漪（P2：收竿要复位落水沿标记）', (tester) async {
+      final (session, scheduler) = await pumpSession(tester);
+      final pond = session.debugPond;
+
+      // 第一竿：涟漪。
+      session.onInput(tapAt(const Offset(300, 300)));
+      expect(pond.ripples, isNotEmpty);
+      pond.ripples.clear(); // 之后只观察第二竿有没有重新产生
+
+      // 收竿 → 浮漂离水。
+      session.onInput(release(800000));
+      await tester.pump();
+      expect(pond.buoyShown, isFalse);
+
+      // 第二竿（越过 2s 休竿期）：仍须击散 + 涟漪。旧实现收竿只改
+      // 可见性、不复位 _buoyWasShown，上升沿不再成立。
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(320, 320)); // 半径内
+      session.onInput(tapAt(const Offset(300, 300), sessionUs: 4000000));
+      expect(pond.ripples, isNotEmpty, reason: '第二竿没有重新起涟漪');
+      expect(pond.debugItems().single.vel, isNot(Offset.zero),
+          reason: '第二竿没有击散半径内的物件');
       scheduler.dispose();
       session.dispose();
     });

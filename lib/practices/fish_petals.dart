@@ -119,6 +119,10 @@ class FishPetalsSession extends PracticeSession {
     );
   }
 
+  /// 本次甩杆已等待的秒数（模型聚拢力度用；非甩杆状态为 0）。
+  double _holdSecondsAt(int nowUs) =>
+      _state == _RodState.casting ? (nowUs - _castStartUs) / 1e6 : 0.0;
+
   void _poll() {
     if (_finished || !_ctx.scheduler.isRunning) return;
     final now = _ctx.scheduler.nowUs();
@@ -129,6 +133,12 @@ class FishPetalsSession extends PracticeSession {
       _ctx.requestFinish(FinishReason.antiIdle);
       return;
     }
+
+    // 由会话时间推进池塘（P1）：判定要求"物件漂进浮漂 36px 内"，
+    // 若只由绘制帧推进，关闭动画/无障碍导航后物件永不移动、永远
+    // 上不了钩，最终只能被反挂机收口。动画正常时帧驱动已消费掉
+    // 大部分时间差，这里只补残差，不会双倍推进。
+    pond.advance(now, holdSeconds: _holdSecondsAt(now));
 
     switch (_state) {
       case _RodState.casting:
@@ -354,10 +364,8 @@ class FishPetalsSession extends PracticeSession {
           child: IgnorePointer(
             child: _PondLayer(
               model: pond,
-              holdSeconds: () {
-                if (_state != _RodState.casting) return 0.0;
-                return (_ctx.scheduler.nowUs() - _castStartUs) / 1e6;
-              },
+              nowUs: () => _ctx.scheduler.nowUs(),
+              holdSeconds: () => _holdSecondsAt(_ctx.scheduler.nowUs()),
             ),
           ),
         ),
@@ -569,7 +577,13 @@ class PondModel {
   }
 
   /// 只更新可见性（浮漂位置固定，Bug 描述 #5）。
-  void setBuoyShown(bool shown) => _buoyShown = shown;
+  ///
+  /// 隐藏时必须同步复位落水上升沿标记：否则第一竿把它置为 true 之后，
+  /// 第二次抛竿不再满足上升沿条件，击散与涟漪只在第一竿出现（P2）。
+  void setBuoyShown(bool shown) {
+    _buoyShown = shown;
+    if (!shown) _buoyWasShown = false;
+  }
 
   /// 距浮漂最近的同类型漂浮物（可限判定半径）；没有则 null。
   PondItem? nearestOf(bool isPetal, {double? within}) {
@@ -662,7 +676,29 @@ class PondModel {
     }
   }
 
-  /// 逐帧推进（视觉层调用；玩法判定不依赖它）。
+  int? _lastAdvanceUs;
+
+  /// 由**会话时间**推进模拟（P1：判定不得依赖界面动画）。
+  ///
+  /// 谁调用不重要——动画帧与会话轮询都调它，各自只消费"距上次推进的
+  /// 会话时间差"，所以重复调用不会双倍推进。关闭动画/无障碍导航时绘制
+  /// 帧停住，会话轮询仍照常把池塘推进下去，物件照常漂进判定半径。
+  void advance(int nowUs, {required double holdSeconds}) {
+    if (_size == Size.zero) return;
+    final last = _lastAdvanceUs;
+    _lastAdvanceUs = nowUs;
+    if (last == null) return;
+    // 单次最多推进 250ms：足够覆盖 100ms 的会话轮询，又能在回到前台后
+    // 避免物件瞬移（下层以 1/120 子步积分保持稳定）。
+    var remaining = ((nowUs - last) / 1e6).clamp(0.0, 0.25);
+    while (remaining > 1e-9) {
+      final dt = min(remaining, 1 / 120);
+      step(dt, holdSeconds: holdSeconds);
+      remaining -= dt;
+    }
+  }
+
+  /// 逐帧推进（由 [advance] 调用；玩法判定不依赖谁在驱动它）。
   void step(double dt, {required double holdSeconds}) {
     if (_size == Size.zero) return;
     final center = _buoy;
@@ -778,9 +814,16 @@ class PondModel {
 /// 俯视池塘层：渲染 [PondModel]（花瓣/杂物/浮漂用正式图片素材，
 /// Bug 描述 #5），逐帧推进模拟；自身不做任何玩法判定。
 class _PondLayer extends StatefulWidget {
-  const _PondLayer({required this.model, required this.holdSeconds});
+  const _PondLayer({
+    required this.model,
+    required this.nowUs,
+    required this.holdSeconds,
+  });
 
   final PondModel model;
+
+  /// 会话时间源（与判定同一条时钟，避免画面与判定用两个时基）。
+  final int Function() nowUs;
   final double Function() holdSeconds;
 
   @override
@@ -790,7 +833,6 @@ class _PondLayer extends StatefulWidget {
 class _PondLayerState extends State<_PondLayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _frame;
-  Duration? _lastFrameTime;
   bool _reduceMotion = false;
 
   PondModel get _model => widget.model;
@@ -813,7 +855,6 @@ class _PondLayerState extends State<_PondLayer>
     _model.resize(media?.size ?? Size.zero);
     if (reduceMotion != _reduceMotion || !_frame.isAnimating) {
       _reduceMotion = reduceMotion;
-      _lastFrameTime = null;
       if (_reduceMotion) {
         _frame.stop();
         _model.ripples.clear();
@@ -827,20 +868,11 @@ class _PondLayerState extends State<_PondLayer>
   }
 
   void _onFrame() {
-    final now = _frame.lastElapsedDuration;
-    if (_reduceMotion || now == null) return;
-    final previous = _lastFrameTime;
-    _lastFrameTime = now;
-    if (previous == null) return;
-    // 长帧最多推进 50ms，避免恢复前台时物件瞬移；小步积分保持惯性稳定。
-    var remaining = ((now - previous).inMicroseconds / 1e6).clamp(0.0, 0.05);
-    if (remaining == 0) return;
+    if (_reduceMotion) return;
+    // 逐帧推进只负责画面流畅；推进量的所有权在 PondModel.advance，
+    // 关闭动画时由会话轮询继续推进，判定不依赖绘制帧。
     setState(() {
-      while (remaining > 1e-9) {
-        final dt = min(remaining, 1 / 120);
-        _model.step(dt, holdSeconds: widget.holdSeconds());
-        remaining -= dt;
-      }
+      _model.advance(widget.nowUs(), holdSeconds: widget.holdSeconds());
     });
   }
 

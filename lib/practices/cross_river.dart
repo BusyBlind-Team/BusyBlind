@@ -182,7 +182,10 @@ class CrossRiverSession extends PracticeSession {
     switch (e.phase) {
       case PointerPhase.down:
         // 引导未播完不起手（起手过早只留痕，不触发跟随音）。
-        if (_ctx.scheduler.nowUs() < _guideEndUs) {
+        // 用事件发生时刻 e.sessionUs 判定，而不是处理时刻 nowUs：界面
+        // 卡顿会把引导结束前按下的事件延迟到结束之后才派送，用处理时刻
+        // 会误判为合法起手，而后续计分走的又是 e.sessionUs（P2）。
+        if (e.sessionUs < _guideEndUs) {
           _ctx.recorder.log('input:earlyPress', {'at': e.sessionUs});
           return;
         }
