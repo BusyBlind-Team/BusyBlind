@@ -14,13 +14,21 @@ class AchievementDef {
     required this.id,
     required this.title,
     required this.description,
+    required this.condition,
     required this.test,
     this.hidden = false,
   });
 
   final String id;
   final String title;
+
+  /// 风味文案（成就页正文）。
   final String description;
+
+  /// 达成条件（成就页在风味文案下方用小字注明）。
+  ///
+  /// 与 [test] 必须语义一致：条件只是 [test] 的人类可读表述。
+  final String condition;
 
   /// 隐藏成就：解锁前在成就页不显示名称与条件。
   final bool hidden;
@@ -69,42 +77,49 @@ final List<AchievementDef> kAchievements = [
     id: 'login_1',
     title: '刹那',
     description: '当下一念，使我们相逢。',
+    condition: '累计登录 1 天',
     test: (e) => _loginAtLeast(e.store, 1),
   ),
   AchievementDef(
     id: 'login_7',
     title: '禅七',
     description: '若七日，一心不乱。',
+    condition: '累计登录 7 天',
     test: (e) => _loginAtLeast(e.store, 7),
   ),
   AchievementDef(
     id: 'login_30',
     title: '期月',
     description: '月升，月落，月满，月残。该去撕掉一页日历了。',
+    condition: '累计登录 30 天',
     test: (e) => _loginAtLeast(e.store, 30),
   ),
   AchievementDef(
     id: 'login_90',
     title: '九旬',
     description: '修行九十天，能叫九旬老人吗（笑',
+    condition: '累计登录 90 天',
     test: (e) => _loginAtLeast(e.store, 90),
   ),
   AchievementDef(
     id: 'login_365',
     title: '一腊',
     description: '"这个星球的人在庆祝什么？""他们的行星绕着恒星转了一圈。"',
+    condition: '累计登录 365 天',
     test: (e) => _loginAtLeast(e.store, 365),
   ),
   AchievementDef(
     id: 'login_520',
     title: '久久',
     description: '是的，我爱修行，我要进行一辈子修行。',
+    condition: '累计登录 520 天',
     test: (e) => _loginAtLeast(e.store, 520),
   ),
   AchievementDef(
     id: 'login_3650',
     title: '十年',
     description: '大约没人能达成这个成就，达成的也已经成佛了。',
+    condition: '累计登录 3650 天（约十年）',
     test: (e) => _loginAtLeast(e.store, 3650),
   ),
 
@@ -113,48 +128,56 @@ final List<AchievementDef> kAchievements = [
     id: 'level_langzi',
     title: '浪子',
     description: '打野0-8-1的时期。',
+    condition: '修为达到 0（初次进门即得）',
     test: (e) => _levelAtLeast(e.store, kMeritLevels[0].minMerit),
   ),
   AchievementDef(
     id: 'level_jushi',
     title: '居士',
     description: '青莲居士是酒鬼，东坡居士是饭桶，而我只爱修行。',
+    condition: '修为达到 50',
     test: (e) => _levelAtLeast(e.store, 50),
   ),
   AchievementDef(
     id: 'level_xingzhe',
     title: '行者',
     description: '我身上能看到那位大圣曾经的影子吗？',
+    condition: '修为达到 200',
     test: (e) => _levelAtLeast(e.store, 200),
   ),
   AchievementDef(
     id: 'level_shami',
     title: '沙弥',
     description: '不要迷恋哥，哥已经与红尘做了了断。',
+    condition: '修为达到 500',
     test: (e) => _levelAtLeast(e.store, 500),
   ),
   AchievementDef(
     id: 'level_biqiu',
     title: '比丘',
     description: '修行了这么久，终于转正了。',
+    condition: '修为达到 1000',
     test: (e) => _levelAtLeast(e.store, 1000),
   ),
   AchievementDef(
     id: 'level_fangzhang',
     title: '方丈',
     description: '得罪了方丈还想走？',
+    condition: '修为达到 2000',
     test: (e) => _levelAtLeast(e.store, 2000),
   ),
   AchievementDef(
     id: 'level_luohan',
     title: '罗汉',
     description: '才不是因为吃了罗汉果。',
+    condition: '修为达到 5000',
     test: (e) => _levelAtLeast(e.store, 5000),
   ),
   AchievementDef(
     id: 'level_pusa',
     title: '菩萨',
     description: '脱离苦海，普渡众生。',
+    condition: '修为达到 10000',
     test: (e) => _levelAtLeast(e.store, 10000),
   ),
 
@@ -163,12 +186,14 @@ final List<AchievementDef> kAchievements = [
     id: 'meditation_1',
     title: '妄念息止',
     description: '什么都不做也是一种修行。',
+    condition: '完成 1 次打坐',
     test: (e) => _countSessions(e.store, 'meditation') >= 1,
   ),
   AchievementDef(
     id: 'meditation_24h',
     title: '寂照澄明',
     description: '一日之计在于打坐。',
+    condition: '打坐累计时长达到 24 小时',
     test: (e) =>
         e.store.sessions
             .where((s) => s['practiceId'] == 'meditation')
@@ -179,6 +204,7 @@ final List<AchievementDef> kAchievements = [
     id: 'meditation_1h',
     title: '万籁俱寂',
     description: 'I hear the sound of silence.',
+    condition: '单次打坐超过 1 小时',
     test: (e) => e.store.sessions.any(
       (s) =>
           s['practiceId'] == 'meditation' &&
@@ -191,18 +217,21 @@ final List<AchievementDef> kAchievements = [
     id: 'muyu_1',
     title: '咚咚笃笃',
     description: '木鱼里传来低沉而空灵，仿若心跳的灵魂之音。',
+    condition: '完成 1 次木鱼',
     test: (e) => _countSessions(e.store, 'wooden_fish') >= 1,
   ),
   AchievementDef(
     id: 'muyu_10',
     title: '木鱼宇宙',
     description: '原来木鱼里藏着一个小宇宙，我听见的就是它的心跳。',
+    condition: '完成 10 次木鱼',
     test: (e) => _countSessions(e.store, 'wooden_fish') >= 10,
   ),
   AchievementDef(
     id: 'muyu_offset5',
     title: '致命节奏',
     description: '我是一个忧伤节拍器。',
+    condition: '完整敲满 108 声，且总时长在 107 秒 ±5 秒内',
     // 必须完整敲满 108 声——只敲两下、间隔 107 秒再退出不算（复审 P2-6）。
     test: (e) => _anySession(
       e.store,
@@ -223,18 +252,21 @@ final List<AchievementDef> kAchievements = [
     id: 'rain_1',
     title: '时落之雨',
     description: '追随季节的讯息赶来的时雨，流连于屋檐不愿落下。',
+    condition: '完成 1 次数雨',
     test: (e) => _countSessions(e.store, 'count_rain') >= 1,
   ),
   AchievementDef(
     id: 'rain_10',
     title: '润物无声',
     description: '听觉之外，还有不计其数的雨滴在无声地润泽着大地。',
+    condition: '完成 10 次数雨',
     test: (e) => _countSessions(e.store, 'count_rain') >= 10,
   ),
   AchievementDef(
     id: 'rain_perfect5',
     title: '动杯雨接',
     description: '用杯子把每一滴雨都接住，好像就能数对了。',
+    condition: '报数完全准确（误差 0 滴）累计 5 次',
     test: (e) =>
         e.store.sessions
             .where(
@@ -254,18 +286,21 @@ final List<AchievementDef> kAchievements = [
     id: 'tide_1',
     title: '潮涌潮落',
     description: '东临碣石，任潮水涤净心灵。',
+    condition: '完成 1 次听潮',
     test: (e) => _countSessions(e.store, 'tide_breath') >= 1,
   ),
   AchievementDef(
     id: 'tide_10',
     title: '天地吐息',
     description: '一呼一吸之间，我与这颗星球融为一体。',
+    condition: '完成 10 次听潮',
     test: (e) => _countSessions(e.store, 'tide_breath') >= 10,
   ),
   AchievementDef(
     id: 'tide_sync90',
     title: '水之呼吸',
     description: '已经是堪比ECMO的存在。',
+    condition: '单局经历 ≥2 个呼吸相位，且平均同步率 > 90%',
     test: (e) => _anySession(
       e.store,
       'tide_breath',
@@ -280,12 +315,14 @@ final List<AchievementDef> kAchievements = [
     id: 'river_1',
     title: '秋水寒',
     description: '人不可能两次踏入同一条河流。开玩笑的，下次还踏。',
+    condition: '完成 1 次过河',
     test: (e) => _countSessions(e.store, 'cross_river') >= 1,
   ),
   AchievementDef(
     id: 'river_3000',
     title: '生命流',
     description: '膏泽众生的水呵，潺潺响声就是生命的合奏。',
+    condition: '单局得分 ≥ 3000',
     test: (e) => _anySession(
       e.store,
       'cross_river',
@@ -298,12 +335,14 @@ final List<AchievementDef> kAchievements = [
     id: 'fish_1',
     title: '愿花上钩',
     description: '这条至清的溪流中只有缓缓漂流的花瓣，在此垂钓算不得杀生。',
+    condition: '完成 1 次钓花',
     test: (e) => _countSessions(e.store, 'fish_petals') >= 1,
   ),
   AchievementDef(
     id: 'flower_1',
     title: '再闻花名',
     description: '历经万难重塑君之旧貌，只为再闻君芳名。',
+    condition: '合成 1 朵完整的花',
     test: (e) => e.store.flowers.isNotEmpty,
   ),
 
@@ -312,6 +351,7 @@ final List<AchievementDef> kAchievements = [
     id: 'muyu_15s',
     title: '爆裂木鱼手',
     description: '朋友，也许乐队更适合你……',
+    condition: '完整敲满 108 声，且总时长 ≤ 15 秒',
     hidden: true,
     test: (e) => _anySession(
       e.store,
@@ -328,6 +368,7 @@ final List<AchievementDef> kAchievements = [
     id: 'rain_err10',
     title: '雨一直下',
     description: '雨太大了，不清楚到底多少滴，乱报一个数算了。',
+    condition: '单局报数误差 ≥ 10 滴',
     hidden: true,
     test: (e) => _anySession(e.store, 'count_rain', (m) {
       final reported = m['userReport'];
@@ -339,6 +380,7 @@ final List<AchievementDef> kAchievements = [
     id: 'tide_sync10',
     title: '立刻抢救',
     description: '喂，我只是睡着了，又不是没呼吸了！',
+    condition: '单局经历 ≥ 2 个相位，且平均同步率 < 10%',
     hidden: true,
     test: (e) => _anySession(
       e.store,
@@ -352,6 +394,7 @@ final List<AchievementDef> kAchievements = [
     id: 'river_9999',
     title: '跳大神',
     description: '我当年可是跳一跳大神。等等，不是跳大神。',
+    condition: '单局得分 ≥ 9999',
     hidden: true,
     test: (e) => _anySession(
       e.store,
@@ -363,6 +406,7 @@ final List<AchievementDef> kAchievements = [
     id: 'flower_all',
     title: '完结撒花',
     description: '这里，就是终点了吗……其实可以把花放生了再钓一轮。',
+    condition: '集齐全部花种，合成所有花',
     hidden: true,
     test: (e) => e.store.flowers.length >= kFlowerSpecies.length,
   ),

@@ -253,6 +253,21 @@ void main() {
       expect(store.merit, 2);
     });
 
+    test('普通成就都注明了达成条件（隐藏成就单独处理）', () {
+      final regular = kAchievements.where((a) => !a.hidden).toList();
+      final hidden = kAchievements.where((a) => a.hidden).toList();
+      expect(regular, hasLength(31), reason: '常规成就 31 条');
+      expect(hidden, hasLength(5), reason: '隐藏成就 5 条');
+      for (final a in regular) {
+        expect(a.condition, isNotEmpty, reason: '${a.id} 缺少达成条件文案');
+        expect(a.condition, isNot(contains('TODO')));
+      }
+      // 条件文案不能只是复述标题，否则等于没写。
+      for (final a in regular) {
+        expect(a.condition, isNot(equals(a.title)));
+      }
+    });
+
     test('成就解锁幂等', () {
       final store = AppStore.inMemory();
       expect(store.unlockAchievements(['a', 'b']), ['a', 'b']);

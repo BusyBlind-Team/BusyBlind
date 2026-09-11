@@ -2,12 +2,14 @@ import 'package:busy_blind/app.dart';
 import 'package:busy_blind/core/audio/sound_bank.dart';
 import 'package:busy_blind/core/practice/practice_host.dart';
 import 'package:busy_blind/data/app_store.dart';
+import 'package:busy_blind/domain/achievements.dart';
 import 'package:busy_blind/di.dart';
 import 'package:busy_blind/features/monk/sign_page.dart';
 import 'package:busy_blind/features/monk/meditation_page.dart';
 import 'package:busy_blind/practices/tide_breath.dart';
 import 'package:busy_blind/practices/fish_petals.dart';
 import 'package:busy_blind/features/me/me_page.dart';
+import 'package:busy_blind/features/monk/achievements_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:busy_blind/practices/cross_river.dart';
@@ -353,6 +355,30 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+
+  testWidgets('成就页：普通成就用小字注明达成条件，隐藏成就不剧透', (tester) async {
+    // 用超高视口让 ListView 一次把整页都构建出来，免去滚动带来的
+    // "懒构建 / 匹配数不唯一"干扰。
+    tester.view.physicalSize = const Size(1000, 12000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final store = AppStore.inMemory();
+    await tester.pumpWidget(harness(home: const AchievementsPage(), store: store));
+    await tester.pumpAndSettle();
+
+    // 普通成就：风味文案下方用小字注明达成条件。
+    expect(find.text('达成条件：累计登录 1 天'), findsOneWidget);
+    expect(find.text('达成条件：完成 1 次木鱼'), findsOneWidget);
+    expect(find.text('达成条件：修为达到 50'), findsOneWidget);
+    // 31 条常规成就各有一条条件小字（再加隐藏区无）。
+    expect(find.textContaining('达成条件：'), findsNWidgets(31));
+
+    // 隐藏成就未解锁：只显示"？？？"，绝不泄露条件。
+    final hidden = kAchievements.firstWhere((a) => a.id == 'muyu_15s');
+    expect(find.text('？？？'), findsWidgets);
+    expect(find.text('达成条件：${hidden.condition}'), findsNothing);
+  });
 
   testWidgets('外部存储更新会刷新已显示的个人页', (tester) async {
     final store = AppStore.inMemory();
