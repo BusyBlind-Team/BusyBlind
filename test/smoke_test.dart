@@ -369,7 +369,7 @@ void main() {
 
     // 普通成就：风味文案下方用小字注明达成条件。
     // 条件文案逐字取自《文案：成就》括号内的原文。
-    expect(find.text('达成条件：登陆天数达到1'), findsOneWidget);
+    expect(find.text('达成条件：登录天数达到1'), findsOneWidget);
     expect(find.text('达成条件：进行1次木鱼'), findsOneWidget);
     expect(find.text('达成条件：修为等级达到居士'), findsOneWidget);
     // 31 条常规成就各有一条条件小字（再加隐藏区无）。
