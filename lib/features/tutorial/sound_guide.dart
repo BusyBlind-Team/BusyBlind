@@ -8,32 +8,50 @@ import '../../theme.dart';
 /// 声音语义表的数据（首次教程第 ② 页与「我 → 声音指引」共用一份）。
 ///
 /// final 而非 const：riverSoundKey 是方法调用，不能进编译期常量。
-final List<({String sound, String meaning, List<String> keys})>
+final List<({String sound, String meaning, List<String> keys, int gapMs})>
 kSoundGuideRows = [
-  (sound: '轻快的筝', meaning: '开始 / 请闭眼', keys: [SoundCatalog.chimeKey]),
-  (sound: '沉重的筝', meaning: '结束 / 可以睁眼', keys: [SoundCatalog.chimeDoubleKey]),
   (
-    sound: '过河引导音',
+    sound: '轻快的筝',
+    meaning: '开始 / 请闭眼',
+    keys: [SoundCatalog.chimeKey],
+    gapMs: 900,
+  ),
+  (
+    sound: '沉重的筝',
+    meaning: '结束 / 可以睁眼',
+    keys: [SoundCatalog.chimeDoubleKey],
+    gapMs: 900,
+  ),
+  // 过河的引导音就是"筝"。示例：播 1 → 间隔 1 秒 → 播 2。
+  (
+    sound: '筝',
     meaning: '过河：复现这个间隔',
     keys: [SoundCatalog.riverSoundKey(1), SoundCatalog.riverSoundKey(2)],
+    gapMs: 1000,
   ),
   (
     sound: '花瓣/杂物上钩的声音',
     meaning: '花瓣/杂物上钩了',
     keys: [SoundCatalog.fishDingKey, SoundCatalog.fishDongKey],
+    gapMs: 900,
   ),
-  (sound: '木鱼声', meaning: '一秒一声的节拍', keys: [SoundCatalog.muyuKey]),
+  (
+    sound: '木鱼声',
+    meaning: '一秒一声的节拍',
+    keys: [SoundCatalog.muyuKey],
+    gapMs: 900,
+  ),
 ];
 
 /// 声音语义表列表（每条可现场试听）。
 class SoundGuideList extends ConsumerWidget {
   const SoundGuideList({super.key});
 
-  Future<void> _playDemo(WidgetRef ref, List<String> keys) async {
+  Future<void> _playDemo(WidgetRef ref, List<String> keys, int gapMs) async {
     final sounds = ref.read(soundBankProvider);
     for (final key in keys) {
       await sounds.play(key);
-      await Future<void>.delayed(const Duration(milliseconds: 900));
+      await Future<void>.delayed(Duration(milliseconds: gapMs));
     }
   }
 
@@ -76,7 +94,7 @@ class SoundGuideList extends ConsumerWidget {
                 ),
                 IconButton(
                   tooltip: '试听',
-                  onPressed: () => _playDemo(ref, row.keys),
+                  onPressed: () => _playDemo(ref, row.keys, row.gapMs),
                   icon: const Icon(
                     Icons.volume_up_outlined,
                     color: AppTheme.goldDim,

@@ -963,6 +963,53 @@ void main() {
       });
     });
 
+    test('#1 相位截止锚在时间轴上，不逐段累积回调延迟', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 300));
+        // 4-6：段长 [4s, 6s]，理想排期严格是 begun + 4s / +10s / +14s …
+        final begun = session.debugBegunUs;
+        var cursor = begun;
+        for (var i = 0; i < 4; i++) {
+          cursor += kBreathMethods[0][session.debugSegIndex].lengthUs;
+          expect(session.debugPhaseEndUs, cursor,
+              reason: '第 $i 段截止时刻应严格锚在时间轴上（不累积回调延迟）');
+          clock.advanceUs(kBreathMethods[0][session.debugSegIndex].lengthUs);
+          async.elapse(const Duration(milliseconds: 200));
+        }
+        scheduler.dispose();
+      });
+    });
+
+    test('#4 开场三秒不参与判定：不累计吻合、也不响风铃', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) =
+            makeContext((_) {}, params: const {'handsFree': true});
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        // 引子内（2 秒）：既没进入呼吸，也没有任何吻合累计/风铃。
+        clock.advanceUs(2000000);
+        async.elapse(const Duration(milliseconds: 300));
+        expect(session.debugBreathing, isFalse);
+        expect(session.debugMatchedUs, 0, reason: '开场等待不得计入同步率');
+        expect(sounds.played.where((k) => k == 'wind_chime'), isEmpty,
+            reason: '开场不应提前响风铃');
+        // 引子结束、进入正式呼吸后才开始统计。
+        clock.advanceUs(1500000);
+        async.elapse(const Duration(seconds: 1));
+        expect(session.debugBreathing, isTrue);
+        expect(session.debugMatchedUs, greaterThan(0));
+        scheduler.dispose();
+      });
+    });
+
     test('手动模式：不按压则相位不吻合，同步率为 0', () {
       fakeAsync((async) {
         final (ctx, clock, _, scheduler) = makeContext((_) {});

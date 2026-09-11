@@ -11,17 +11,23 @@ import 'package:busy_blind/features/me/me_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:busy_blind/practices/cross_river.dart';
+import 'package:busy_blind/practices/count_rain.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
 
-Widget harness({required Widget home, AppStore? store, FakeClock? clock}) {
+Widget harness({
+  required Widget home,
+  AppStore? store,
+  FakeClock? clock,
+  SilentSoundBank? sounds,
+}) {
   return ProviderScope(
     overrides: [
       storeProvider.overrideWith((ref) => store ?? AppStore.inMemory()),
-      soundBankProvider.overrideWithValue(SilentSoundBank()),
+      soundBankProvider.overrideWithValue(sounds ?? SilentSoundBank()),
       clockProvider.overrideWithValue(clock ?? FakeClock()),
     ],
     child: MaterialApp(home: home),
@@ -227,6 +233,59 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('背景音乐：'), findsNothing);
+  });
+
+  testWidgets('#3 开始界面改选 BGM 后，按最终选择播放（数雨）', (tester) async {
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('count_rain')
+      ..setBgmSettings(track: 2); // 进入页面时全局是"风铃"
+    final sounds = SilentSoundBank();
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(factory: CountRainSession.new),
+        store: store,
+        sounds: sounds,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('背景音乐：风铃'), findsOneWidget);
+
+    // 开始前改成"不要背景音乐"（旧实现在进页面时就定死了参数）。
+    await tester.tap(find.text('背景音乐：风铃'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('不要背景音乐'));
+    await tester.pumpAndSettle();
+    expect(find.text('背景音乐：不要背景音乐'), findsOneWidget);
+
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(sounds.loopsStarted, isNot(contains('bgm_fengling')),
+        reason: '改选"不要"之后不应还播进入页面时的那首');
+    expect(sounds.loopsStarted, contains('forest_loop'));
+  });
+
+  testWidgets('#2 离开页面时兜底停掉环境音（过河只播河流）', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('cross_river');
+    final sounds = SilentSoundBank();
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(factory: CrossRiverSession.new),
+        store: store,
+        sounds: sounds,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(sounds.loopsStarted, contains('amb_river'));
+    expect(sounds.loopsStarted.any((k) => k.startsWith('bgm_')), isFalse,
+        reason: '§14.1：过河不播五首 BGM');
+
+    // 结算后立刻返回：渐出定时器会被取消，必须由销毁兜底停止音轨。
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+    expect(sounds.loopsStopped, contains('amb_river'));
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('§6：听潮开始界面点击呼吸法展开节奏与难度', (tester) async {

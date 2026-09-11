@@ -174,7 +174,9 @@ class TideBreathSession extends PracticeSession {
     _segments = kBreathMethods[_breathMethod.clamp(0, kBreathMethods.length - 1)];
     _segIndex = 0;
     final now = _ctx.scheduler.nowUs();
-    _begunUs = now + _introUs;
+    // #1：指引音轨的起播有输出延迟，判定起点后移同样的时长，避免整局
+    // 恒定偏移（音轨已裁成恰好 2 个呼吸周期，循环边界与周期对齐）。
+    _begunUs = now + _introUs + _ctx.clock.outputLatencyUs;
     _breathing = false;
     _lastMatchCheckUs = now;
 
@@ -213,6 +215,12 @@ class TideBreathSession extends PracticeSession {
   void _beginBreathing() {
     if (_finished) return;
     _breathing = true;
+    // #4：前三秒是"先单独播潮水"，不参与同步统计，也不能提前响风铃。
+    // 这里把统计清零，否则开场被累计的"吻合"时长会算进第一段吸气。
+    _matchedUs = 0;
+    _lastMatchCheckUs = _begunUs;
+    _chimedThisPhase = false;
+    _phaseEndUs = _begunUs + _segments[_segIndex].lengthUs;
     _schedulePhaseEnd();
     // 指引音乐在潮水之上开始循环（§2.3(2)）。
     _ctx.sounds.startLoop(_guideKey, gain: 0, startAt: Duration.zero);
@@ -236,12 +244,14 @@ class TideBreathSession extends PracticeSession {
     }
   }
 
+  /// 本段在会话时间轴上的绝对结束时刻（自 [_begunUs] 累加）。
+  ///
+  /// #1：不用 nowUs() + len 逐段排期——那样每段的回调延迟都会累积，
+  /// 一段一段把判定节奏推后，整局下来与音轨明显错位。
+  int _phaseEndUs = 0;
+
   void _schedulePhaseEnd() {
-    final len = _segments[_segIndex].lengthUs;
-    _ctx.scheduler.scheduleCallback(
-      _ctx.scheduler.nowUs() + len,
-      _advancePhase,
-    );
+    _ctx.scheduler.scheduleCallback(_phaseEndUs, _advancePhase);
   }
 
   void _advancePhase() {
@@ -258,12 +268,15 @@ class TideBreathSession extends PracticeSession {
 
     _segIndex = (_segIndex + 1) % _segments.length;
     _chimedThisPhase = false;
+    // 下一段截止 = 本段截止 + 下一段时长，始终锚在时间轴上。
+    _phaseEndUs += _segments[_segIndex].lengthUs;
     notifyVisualChanged();
     _schedulePhaseEnd();
   }
 
+  /// 只有进入正式呼吸后才谈得上吻合（#4：开场三秒不计入）。
   bool get _phaseMatchesInput =>
-      !_breathing || (_handsFree ? true : _pressed == _shouldPress);
+      _breathing && (_handsFree ? true : _pressed == _shouldPress);
 
   @override
   void onInput(InputEvent e) {
@@ -287,6 +300,8 @@ class TideBreathSession extends PracticeSession {
   /// 相位吻合累计与风铃反馈，交给低频轮询（200ms，精度足够）。
   void _pollMatch() {
     if (_finished || !_ctx.scheduler.isRunning) return;
+    // #4：正式呼吸开始前不累计吻合时长（否则首段吸气白拿同步率）。
+    if (!_breathing) return;
     final now = _ctx.scheduler.nowUs();
     if (_phaseMatchesInput) {
       final delta = now - (_lastMatchCheckUs ?? now);
@@ -410,6 +425,20 @@ class TideBreathSession extends PracticeSession {
   /// 圆圈此刻是否在放大（§4.2/§7.2 的观察点）。
   @visibleForTesting
   bool get debugGrowActive => _growActive;
+
+  /// 呼吸时间轴起点（#1 排期锚点）与下一段截止时刻。
+  @visibleForTesting
+  int get debugBegunUs => _begunUs;
+  @visibleForTesting
+  int get debugPhaseEndUs => _phaseEndUs;
+
+  /// 本相位已累计的吻合时长（#4：开场三秒必须为 0）。
+  @visibleForTesting
+  int get debugMatchedUs => _matchedUs;
+  @visibleForTesting
+  bool get debugBreathing => _breathing;
+  @visibleForTesting
+  int get debugSegIndex => _segIndex;
 
   @visibleForTesting
   PracticeResult debugResultForTest() =>

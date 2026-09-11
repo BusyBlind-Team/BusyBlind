@@ -34,6 +34,10 @@ abstract class SoundBank {
 class SilentSoundBank implements SoundBank {
   final List<String> played = [];
 
+  /// 循环音轨的起停记录（复审 #2/#3 的回归观察点）。
+  final List<String> loopsStarted = [];
+  final List<String> loopsStopped = [];
+
   @override
   Future<void> register(Map<String, String> assetByKey) async {}
 
@@ -46,13 +50,17 @@ class SilentSoundBank implements SoundBank {
   }
 
   @override
-  Future<void> startLoop(String key, {double gain = 1.0, Duration? startAt}) async {}
+  Future<void> startLoop(String key, {double gain = 1.0, Duration? startAt}) async {
+    loopsStarted.add(key);
+  }
 
   @override
   Future<void> setLoopGain(String key, double gain) async {}
 
   @override
-  Future<void> stopLoop(String key) async {}
+  Future<void> stopLoop(String key) async {
+    loopsStopped.add(key);
+  }
 
   @override
   Future<void> pauseAll() async {}

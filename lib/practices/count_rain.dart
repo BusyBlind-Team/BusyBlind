@@ -67,9 +67,6 @@ class CountRainSession extends PracticeSession {
   @override
   Future<void> prepare(PracticeContext ctx) async {
     _ctx = ctx;
-    // 环境循环音（默认鸟鸣虫鸣）可被所选背景音乐对应替换（首页"乐"设置）。
-    _ambientKey = ctx.stringParam('ambientKey', SoundCatalog.forestLoopKey);
-    _ambientVolume = ctx.doubleParam('ambientVolume', 0.35);
     _generateRain();
   }
 
@@ -88,6 +85,10 @@ class CountRainSession extends PracticeSession {
 
   @override
   void start() {
+    // 环境循环音（默认鸟鸣虫鸣）可被所选背景音乐对应替换（首页"乐"设置）。
+    // #3：在 start() 读取，保证用的是开始界面上最终确认的 BGM 选择。
+    _ambientKey = _ctx.stringParam('ambientKey', SoundCatalog.forestLoopKey);
+    _ambientVolume = _ctx.doubleParam('ambientVolume', 0.35);
     // 背景音：默认鸟鸣虫鸣用约 -24dB 的环境音量；被所选 BGM 曲目替换时
     // 就是用户在听的背景音乐，按其设置的音量播（复审 R1）。
     _ctx.sounds.startLoop(
