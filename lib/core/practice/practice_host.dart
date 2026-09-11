@@ -231,11 +231,10 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
 
     final maxMerit = _session.manifest.meritBase * 3;
     final merit = result.merit.clamp(0, maxMerit);
-    final sleepMode = result.note == 'sleep_mode';
 
     try {
       // 会话历史入库是公共结算步骤（复审 R2）：成就口径读的是
-      // store.sessions，助眠局不入库，潮涌潮落/水之呼吸永远不解锁，
+      // store.sessions，漏入库会让潮涌潮落/水之呼吸永不解锁，
       // 统计与报告也会漏计这一次。
       store.addSession(
         practiceId: _session.manifest.id,
@@ -253,14 +252,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
             break;
         }
       }
-      if (sleepMode) {
-        // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
-        store.queuePendingMerit(merit);
-      } else {
-        store.addMerit(merit);
-      }
-      // 成就评估对所有模式一致（含助眠，第 13 轮自检；历史口径靠上面
-      // 刚入库的会话，复审 R2）。
+      store.addMerit(merit);
+      // 成就评估对所有模式一致（历史口径靠上面刚入库的会话，复审 R2）。
       final freshIds = evaluateAchievements(
         store,
         lastResult: result,
@@ -270,18 +263,6 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         for (final id in freshIds)
           kAchievements.firstWhere((a) => a.id == id).title,
       ];
-
-      if (sleepMode) {
-        try {
-          await sounds.stopLoop(SoundCatalog.tideLoopKey);
-        } on Exception {
-          // 循环已停则忽略。
-        }
-        if (mounted) {
-          Navigator.of(context).maybePop();
-        }
-        return;
-      }
 
       // 声音语言：磬两声 = 结束 / 可以睁眼。
       // （Bug 描述 #3：极轻的磬已删除，新成就只以结算页徽记提示。）
@@ -322,7 +303,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         ),
       );
     } else if (_finishing) {
-      // 结算中（含助眠淡出）：只给一个安静的加载指示，不给任何可点入口。
+      // 结算中（音频淡出）：只给一个安静的加载指示，不给任何可点入口。
       child = const _BlackScaffold(
         child: Center(
           child: CircularProgressIndicator(color: Color(0xFFE8DFC8)),

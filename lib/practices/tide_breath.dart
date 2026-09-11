@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 
@@ -10,10 +11,9 @@ import '../core/practice/practice_session.dart';
 import '../core/practice/practice_types.dart';
 import '../widgets/practice_scene.dart';
 
-/// 呼吸法（改进列表：难度选择移到开始界面，含憋气段）。
+/// 呼吸段：时长 + 屏幕是否应当按住 + 音量包络。
 ///
-/// 每段 = (时长, 屏幕应当按住吗, 音量包络)。间隔即憋气：
-/// 憋气段请保持按住；间隔时依然播放潮涌的声音，也算在潮涌判定里。
+/// 新-改进说明文档 §3：按住 = 吸气（及憋气），松开 = 呼气（及憋气）。
 class BreathSegment {
   const BreathSegment(this.lengthUs, this.pressExpected, this.envelope);
 
@@ -24,10 +24,12 @@ class BreathSegment {
 
 enum BreathEnvelope { up, holdHigh, down, holdLow }
 
-/// 三种呼吸法：
-/// - 4-6：4 秒潮涌（吸），6 秒潮落（呼），无间隔。
-/// - 盒式：4 涌 - 4 间隔 - 4 落 - 4 间隔。
-/// - 4-7-8：4 涌 - 7 间隔 - 8 落。
+/// 三种呼吸法时间轴（新-改进说明文档 §3.1 表 1）：
+///
+/// - 4-6：按住 4 秒（吸气）→ 松开 6 秒（呼气），周期 10 秒。
+/// - 盒式：按住 8 秒（4 吸气 + 4 憋气）→ 松开 8 秒（4 呼气 + 4 憋气），
+///   周期 16 秒。憋气在"松开段"里，故最后一段 pressExpected 为 false。
+/// - 4-7-8：按住 11 秒（4 吸气 + 7 憋气）→ 松开 8 秒（呼气），周期 19 秒。
 const List<List<BreathSegment>> kBreathMethods = [
   [
     BreathSegment(4000000, true, BreathEnvelope.up),
@@ -37,7 +39,7 @@ const List<List<BreathSegment>> kBreathMethods = [
     BreathSegment(4000000, true, BreathEnvelope.up),
     BreathSegment(4000000, true, BreathEnvelope.holdHigh),
     BreathSegment(4000000, false, BreathEnvelope.down),
-    BreathSegment(4000000, true, BreathEnvelope.holdLow),
+    BreathSegment(4000000, false, BreathEnvelope.holdLow),
   ],
   [
     BreathSegment(4000000, true, BreathEnvelope.up),
@@ -48,25 +50,47 @@ const List<List<BreathSegment>> kBreathMethods = [
 
 const List<String> kBreathMethodLabels = ['4-6 呼吸', '盒式呼吸', '4-7-8 呼吸'];
 
+/// 开始界面展开的呼吸法详情（新-改进说明文档 §6.2 表 2）。
+const List<({String rhythm, String note})> kBreathMethodDetails = [
+  (rhythm: '4 秒吸气，6 秒呼气', note: '难度低，容易上手'),
+  (rhythm: '4 秒吸气，4 秒憋气，4 秒呼气，4 秒憋气', note: '难度较低，呼吸节奏稳定'),
+  (rhythm: '4 秒吸气，7 秒憋气，8 秒呼气', note: '有一定难度，但放松效果很好'),
+];
+
 /// 听潮（呼吸 · 助眠）。
 ///
-/// 吸气/憋气段按住屏幕，呼气段松开；相位吻合时潮声里叠入一层极轻的风铃。
-/// 呼吸法在开始界面选择（4-6 / 盒式 / 4-7-8）。
-/// 按压特效（改进列表）：屏幕中间圆圈随按住逐渐增大，松手时留下
-/// 原大小虚影快速虚化，圆圈快速缩小到原始大小。
-/// 助眠模式：结束不弹结算页（note='sleep_mode'，宿主处理次日补发）。
+/// 新-改进说明文档 §2–§4：
+/// - 背景音改为潮水（长音轨，随机起点 + 循环 + 渐入渐出），不再播五首 BGM；
+/// - 进入后先单独播 3 秒潮水，随后循环所选呼吸法的指引音乐，
+///   指引开始后才进入长按/松开的时间轴判定；
+/// - 圆圈只有**一个**：按住从 0 匀速扩大，到"吸气→憋气"交界处停住等松手，
+///   松手后以同一速度匀速缩小直到消失（全程单一速度，无分段跳变）。
 ///
-/// 修为公式为拟定值（设计方案待对齐 #5）：分钟数 × 2 × 同步率。
+/// §7：删除助眠模式；新增"解放双手模式"（自动按时间轴呼吸，但不积攒修为）。
 class TideBreathSession extends PracticeSession {
   late PracticeContext _ctx;
 
+  /// 进入后先单独播 3 秒潮水（§2.3）。
+  static const int _introUs = 3000000;
+
+  /// 单局总时长 5 分钟（§3.2）。
+  static const int _totalUs = 5 * 60 * 1000000;
+
+  /// 圆圈扩到最大的时长 = 吸气时长（三种呼吸法都是 4 秒，§4.2）。
+  static const int _growUs = 4000000;
+
+  static const double _tideGain = 0.35;
+  static const double _guideGain = 0.45;
+
   List<BreathSegment> _segments = kBreathMethods[0];
   int _segIndex = 0;
-  int _phaseStartUs = 0;
+
+  /// 呼吸时间轴起点 = 指引音乐开始播放的时刻（= 开始 + 3 秒）。
+  int _begunUs = 0;
+  bool _breathing = false;
 
   // 输入状态。
   bool _pressed = false;
-  int? _pressStartUs;
 
   // 同步统计：与相位期望吻合的累计时长。
   int _matchedUs = 0;
@@ -76,8 +100,12 @@ class TideBreathSession extends PracticeSession {
   final List<double> _phaseSyncRates = [];
 
   bool _finished = false;
+  bool _fadingOut = false;
 
   int _breathMethod = 0;
+
+  /// 解放双手模式：自动完成呼吸，但不积攒修为（§7.2）。
+  bool get _handsFree => _ctx.boolParam('handsFree');
 
   @override
   List<String> get startChoices => kBreathMethodLabels;
@@ -100,38 +128,63 @@ class TideBreathSession extends PracticeSession {
     iconKey: 'tide_breath',
     allowManualEnd: true,
     usesAmbientLoop: true,
-    rulesText: '潮涨渐强时，按住屏幕吸气；潮落渐弱时，松开屏幕呼气。憋气段请保持按住。\n咬合的瞬间，会有一层风铃。',
-    introTags: '呼吸·助眠·白噪声',
-    intro: '潮涌，潮落，这是自然的呼吸。让气息和自然同步，能带来安稳的睡眠。在这放松的五分钟内，循着潮声呼吸吧。',
+    rulesText: '潮涨渐强时，按住屏幕吸气；潮落渐弱时，松开屏幕呼气。憋气段保持按住。\n跟随音乐的引导，与潮水一同呼吸。',
+    introTags: '呼吸·潮水·5分钟',
+    intro: '潮涌，潮落，这是自然的呼吸。跟随音乐的引导，与潮水一同呼吸，如此重复五分钟，不必睁眼。',
   );
 
-  late String _ambientKey = SoundCatalog.tideLoopKey;
-  double _ambientScale = 1.0;
+  /// 指引音乐 key（下标与 kBreathMethods 对齐）。
+  String get _guideKey => SoundCatalog.breathGuideKeys[
+      _breathMethod.clamp(0, SoundCatalog.breathGuideKeys.length - 1)
+  ];
 
   @override
   Future<void> prepare(PracticeContext ctx) async {
     _ctx = ctx;
-    // 潮声循环可被所选背景音乐对应替换（首页"乐"设置）；
-    // 音量包络照旧作用在当前循环轨上（默认音量下与原潮声一致）。
-    _ambientKey = ctx.stringParam('ambientKey', SoundCatalog.tideLoopKey);
-    _ambientScale =
-        ctx.doubleParam('ambientVolume', 0.35) / 0.35;
   }
 
-  bool get _shouldPress => _segments[_segIndex].pressExpected;
+  bool get _shouldPress => _breathing && _segments[_segIndex].pressExpected;
+
+  /// 圆圈此时是否处于"扩大"阶段（§4.2）。
+  ///
+  /// 手动模式看用户的按住；解放双手模式由时间轴自己决定。
+  bool get _growActive =>
+      _breathing && (_handsFree ? _shouldPress : _pressed);
+
+  /// 圆圈半径变化速度：最大半径 / 吸气时长。扩大与缩小共用这一个参数，
+  /// 保证加减速完全一致、平滑连续（§4.2(5)）。
+  static const double circleSpeed = _BreathCircleOverlay.maxRadius /
+      (_growUs / 1000000);
+
+  Timer? _rampTimer;
+  Timer? _matchTimer;
 
   @override
   void start() {
     _segments = kBreathMethods[_breathMethod.clamp(0, kBreathMethods.length - 1)];
     _segIndex = 0;
-    _ctx.sounds.startLoop(_ambientKey, gain: 0.05 * _ambientScale);
-    _phaseStartUs = _ctx.scheduler.nowUs();
-    _lastMatchCheckUs = _phaseStartUs;
-    _schedulePhaseEnd();
-    // 音量包络与吻合累计交给低频轮询（120ms 足够平滑）。
+    final now = _ctx.scheduler.nowUs();
+    _begunUs = now + _introUs;
+    _breathing = false;
+    _lastMatchCheckUs = now;
+
+    // 潮水背景：随机起点 + 循环（§14.4），音量从 0 渐入（§14.5）。
+    _ctx.sounds.startLoop(
+      SoundCatalog.ambTideKey,
+      gain: 0,
+      startAt: _randomStart(),
+    );
+    _tideLevel = 0;
+    // 3 秒后进入呼吸时间轴并起播指引音乐。
+    _ctx.scheduler.scheduleCallback(_begunUs, _beginBreathing);
+    // 5 分钟到点自动收口（§3.2）。
+    _ctx.scheduler.scheduleCallback(_totalUs, () {
+      if (!_finished) _ctx.requestFinish(FinishReason.completed);
+    });
+
     _rampTimer = Timer.periodic(
       const Duration(milliseconds: 120),
-      (_) => _rampVolume(),
+      (_) => _rampGains(),
     );
     _matchTimer = Timer.periodic(
       const Duration(milliseconds: 200),
@@ -139,25 +192,38 @@ class TideBreathSession extends PracticeSession {
     );
   }
 
-  Timer? _rampTimer;
-  Timer? _matchTimer;
+  double _tideLevel = 0;
+  double _guideLevel = 0;
 
-  double _envelopeVolume(BreathEnvelope envelope, double x) => switch (envelope) {
-    BreathEnvelope.up => 0.05 + (0.5 - 0.05) * x,
-    BreathEnvelope.holdHigh => 0.5,
-    BreathEnvelope.down => 0.5 - (0.5 - 0.05) * x,
-    BreathEnvelope.holdLow => 0.05 + 0.06 * x, // 蓄势微升，引出下一段潮涌
-  };
+  final Random _rng = Random();
 
-  void _rampVolume() {
+  /// 潮水总长 611 秒：随机起点（§14.4），留出余量避免开场即接近末尾。
+  Duration _randomStart() => Duration(seconds: _rng.nextInt(480));
+
+  void _beginBreathing() {
+    if (_finished) return;
+    _breathing = true;
+    _schedulePhaseEnd();
+    // 指引音乐在潮水之上开始循环（§2.3(2)）。
+    _ctx.sounds.startLoop(_guideKey, gain: 0, startAt: Duration.zero);
+    notifyVisualChanged();
+  }
+
+  /// 淡入/淡出（§14.5）：潮水起手渐入，指引在 3 秒后渐入，收口时一并渐出。
+  void _rampGains() {
     if (!_ctx.scheduler.isRunning) return;
-    final seg = _segments[_segIndex];
-    final t = _ctx.scheduler.nowUs() - _phaseStartUs;
-    final x = (t / seg.lengthUs).clamp(0.0, 1.0);
-    _ctx.sounds.setLoopGain(
-      _ambientKey,
-      _envelopeVolume(seg.envelope, x) * _ambientScale,
-    );
+    const step = 0.12 / 1.5; // 约 1.5 秒渐入
+    if (_fadingOut) {
+      _tideLevel = (_tideLevel - 0.12 / 2.0).clamp(0.0, 1.0);
+      _guideLevel = (_guideLevel - 0.12 / 2.0).clamp(0.0, 1.0);
+    } else {
+      _tideLevel = (_tideLevel + step).clamp(0.0, 1.0);
+      if (_breathing) _guideLevel = (_guideLevel + step).clamp(0.0, 1.0);
+    }
+    _ctx.sounds.setLoopGain(SoundCatalog.ambTideKey, _tideGain * _tideLevel);
+    if (_breathing) {
+      _ctx.sounds.setLoopGain(_guideKey, _guideGain * _guideLevel);
+    }
   }
 
   void _schedulePhaseEnd() {
@@ -182,12 +248,12 @@ class TideBreathSession extends PracticeSession {
 
     _segIndex = (_segIndex + 1) % _segments.length;
     _chimedThisPhase = false;
-    _phaseStartUs = now;
     notifyVisualChanged();
     _schedulePhaseEnd();
   }
 
-  bool get _phaseMatchesInput => _pressed == _shouldPress;
+  bool get _phaseMatchesInput =>
+      !_breathing || (_handsFree ? true : _pressed == _shouldPress);
 
   @override
   void onInput(InputEvent e) {
@@ -195,13 +261,11 @@ class TideBreathSession extends PracticeSession {
     switch (e.phase) {
       case PointerPhase.down:
         _pressed = true;
-        _pressStartUs = e.sessionUs;
       case PointerPhase.move:
         break; // 按住挪动不改变按住状态。
       case PointerPhase.up:
       case PointerPhase.cancel:
         _pressed = false;
-        _pressStartUs = null;
     }
     _ctx.recorder.log('input:breath', {
       'pressed': _pressed,
@@ -218,7 +282,7 @@ class TideBreathSession extends PracticeSession {
       final delta = now - (_lastMatchCheckUs ?? now);
       _matchedUs += delta;
       // 吻合持续 ≥300ms 且本相位还没响过风铃 → 叠入极轻风铃。
-      if (!_chimedThisPhase && _matchedUs >= 300000 && _pressStartUs != null) {
+      if (!_chimedThisPhase && _matchedUs >= 300000 && (_pressed || _handsFree)) {
         _chimedThisPhase = true;
         _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.35);
       }
@@ -239,19 +303,24 @@ class TideBreathSession extends PracticeSession {
     if (_finished) return _buildResult(r);
     _finished = true;
 
-    final sleepMode = _ctx.boolParam('sleepMode');
-    if (sleepMode) {
-      // 助眠模式：音频渐弱至静音（约 4 秒），宿主按 note 跳过结算页。
-      for (var i = 10; i >= 0; i--) {
-        await _ctx.sounds.setLoopGain(
-          _ambientKey,
-          0.05 * i / 10 * _ambientScale,
-        );
-        await Future<void>.delayed(const Duration(milliseconds: 400));
+    // 收口：两条音轨一并渐弱（§14.5）。
+    final result = _buildResult(r);
+    _fadingOut = true;
+    for (var i = 0; i < 8; i++) {
+      _tideLevel = (_tideLevel - 0.125).clamp(0.0, 1.0);
+      _guideLevel = (_guideLevel - 0.125).clamp(0.0, 1.0);
+      await _ctx.sounds.setLoopGain(
+        SoundCatalog.ambTideKey,
+        _tideGain * _tideLevel,
+      );
+      if (_breathing) {
+        await _ctx.sounds.setLoopGain(_guideKey, _guideGain * _guideLevel);
       }
+      await Future<void>.delayed(const Duration(milliseconds: 200));
     }
-    await _ctx.sounds.stopLoop(_ambientKey);
-    return _buildResult(r);
+    await _ctx.sounds.stopLoop(SoundCatalog.ambTideKey);
+    if (_breathing) await _ctx.sounds.stopLoop(_guideKey);
+    return result;
   }
 
   PracticeResult _buildResult(FinishReason r) {
@@ -262,28 +331,28 @@ class TideBreathSession extends PracticeSession {
         : _phaseSyncRates.reduce((a, b) => a + b) / _phaseSyncRates.length;
     final quality = avgSync.clamp(0.0, 1.0);
     final minutes = elapsedUs / 60000000;
-    final merit = (minutes * 2 * quality).round();
-    final sleepMode = _ctx.boolParam('sleepMode');
+    // 解放双手模式：专心呼吸但无法积攒修为（§7.2）。
+    final merit = _handsFree ? 0 : (minutes * 2 * quality).round();
 
     return PracticeResult(
       effectiveDuration: Duration(microseconds: elapsedUs),
       quality: quality,
       merit: merit,
       completed: r == FinishReason.completed || r == FinishReason.userEnded,
-      note: sleepMode ? 'sleep_mode' : null,
       metrics: {
         'avgSync': avgSync,
         'phaseCount': _phaseBoundariesUs.length,
         'phaseSyncRates': _phaseSyncRates
             .map((e) => (e * 100).round())
             .toList(),
-        'sleepMode': sleepMode,
+        'handsFree': _handsFree,
         'breathMethod': _breathMethod,
       },
     );
   }
 
   String get _phaseLabel {
+    if (!_breathing) return '潮 水 · 静';
     final envelope = _segments[_segIndex].envelope;
     return switch (envelope) {
       BreathEnvelope.up => '潮 涨 · 吸',
@@ -292,14 +361,10 @@ class TideBreathSession extends PracticeSession {
     };
   }
 
-  String get _phaseHint =>
-      _segments[_segIndex].pressExpected ? '按住屏幕' : '松开屏幕';
-
-  /// 当前按住时长占比（0..1，圆圈增大用；8 秒按满）。
-  double get _holdProgress {
-    if (!_pressed || _pressStartUs == null) return 0;
-    final held = _ctx.scheduler.nowUs() - _pressStartUs!;
-    return (held / 8000000).clamp(0.0, 1.0);
+  String get _phaseHint {
+    if (!_breathing) return '听潮水 · 稍候';
+    if (_handsFree) return '解放双手 · 跟随圆圈';
+    return _segments[_segIndex].pressExpected ? '按住屏幕' : '松开屏幕';
   }
 
   @override
@@ -311,25 +376,34 @@ class TideBreathSession extends PracticeSession {
             kind: PracticeSceneKind.tideBreath,
             title: _phaseLabel,
             subtitle: _phaseHint,
-            active: _pressed,
+            active: _growActive,
             count: _phaseBoundariesUs.length,
             accent: _phaseMatchesInput ? 1 : 0.25,
           ),
         ),
-        // 按压圆圈特效（改进列表）：按住渐大，松手留虚影快速虚化。
+        // 单圆圈动画（§4）：按住从 0 匀速扩大 → 交界处停住 → 松手等速缩小。
         Positioned.fill(
           child: IgnorePointer(
             child: _BreathCircleOverlay(
-              pressed: _pressed,
-              holdProgress: _holdProgress,
+              growActive: _growActive,
               matched: _phaseMatchesInput,
-              revision: visualRevision.value,
             ),
           ),
         ),
       ],
     );
   }
+
+  @visibleForTesting
+  int get debugPhaseCount => _phaseBoundariesUs.length;
+
+  /// 圆圈此刻是否在放大（§4.2/§7.2 的观察点）。
+  @visibleForTesting
+  bool get debugGrowActive => _growActive;
+
+  @visibleForTesting
+  PracticeResult debugResultForTest() =>
+      _buildResult(FinishReason.userEnded);
 
   @override
   void dispose() {
@@ -343,6 +417,7 @@ class TideBreathSession extends PracticeSession {
     final sync = ((r.metrics['avgSync'] as num? ?? 0) * 100).toStringAsFixed(0);
     final method = (r.metrics['breathMethod'] as int? ?? 0)
         .clamp(0, kBreathMethodLabels.length - 1);
+    final handsFree = r.metrics['handsFree'] == true;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -359,7 +434,7 @@ class TideBreathSession extends PracticeSession {
         ),
         const SizedBox(height: 8),
         Text(
-          '平均同步率 $sync %',
+          handsFree ? '解放双手模式 · 本局不计修为' : '平均同步率 $sync %',
           textAlign: TextAlign.center,
           style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 14),
         ),
@@ -368,22 +443,18 @@ class TideBreathSession extends PracticeSession {
   }
 }
 
-/// 按压圆圈特效：按住时圆圈逐渐增大；松手时在原大小留一个虚影，
-/// 虚影快速虚化（淡出 + 外扩），圆圈快速缩小到原始大小（改进列表）。
+/// 单圆圈动画（新-改进说明文档 §4）。
+///
+/// 只有一个圆圈：半径从 0 起，[growActive] 时以固定速度匀速扩大并在最大
+/// 半径处停住；否则以**同一速度**匀速缩小到 0（消失）。扩大与缩小共用
+/// [TideBreathSession.circleSpeed]，因此不会出现分段跳变。
 class _BreathCircleOverlay extends StatefulWidget {
-  const _BreathCircleOverlay({
-    required this.pressed,
-    required this.holdProgress,
-    required this.matched,
-    required this.revision,
-  });
+  const _BreathCircleOverlay({required this.growActive, required this.matched});
 
-  final bool pressed;
-  final double holdProgress;
+  final bool growActive;
   final bool matched;
 
-  /// 会话视觉修订号：松手等关键事件借它触发一次 rebuild。
-  final int revision;
+  static const double maxRadius = 170;
 
   @override
   State<_BreathCircleOverlay> createState() => _BreathCircleOverlayState();
@@ -392,11 +463,7 @@ class _BreathCircleOverlay extends StatefulWidget {
 class _BreathCircleOverlayState extends State<_BreathCircleOverlay>
     with SingleTickerProviderStateMixin {
   late final AnimationController _frame;
-  static const double _baseRadius = 46;
-  static const double _maxRadius = 170;
-
-  double _radius = _baseRadius;
-  final List<({double radius, double opacity})> _ghosts = [];
+  double _radius = 0;
   Duration _last = Duration.zero;
 
   @override
@@ -411,54 +478,39 @@ class _BreathCircleOverlayState extends State<_BreathCircleOverlay>
   void _tick(Duration elapsed) {
     final dt = ((elapsed - _last).inMicroseconds / 1e6).clamp(0.0005, 0.1);
     _last = elapsed;
-    if (widget.pressed) {
-      // 按住：向目标半径（随按住时长增大）靠拢。
-      final target =
-          _baseRadius + (_maxRadius - _baseRadius) * widget.holdProgress;
-      _radius += (target - _radius) * (dt * 6).clamp(0.0, 1.0);
-    } else if (_radius > _baseRadius) {
-      // 松手：快速缩回原大。
-      _radius -= 340 * dt;
-      if (_radius < _baseRadius) _radius = _baseRadius;
-    }
-    // 虚影快速虚化：淡出 + 外扩。
-    for (var i = 0; i < _ghosts.length; i++) {
-      final g = _ghosts[i];
-      _ghosts[i] = (
-        radius: g.radius + 60 * dt,
-        opacity: (g.opacity - 2.6 * dt).clamp(0.0, 1.0),
-      );
-    }
-    _ghosts.removeWhere((g) => g.opacity <= 0);
-  }
-
-  @override
-  void didUpdateWidget(covariant _BreathCircleOverlay old) {
-    super.didUpdateWidget(old);
-    // 松手瞬间：留下原大小的虚影。
-    if (old.pressed && !widget.pressed && _radius > _baseRadius + 4) {
-      _ghosts.add((radius: _radius, opacity: 0.4));
+    if (widget.growActive) {
+      _radius = (_radius + TideBreathSession.circleSpeed * dt)
+          .clamp(0.0, _BreathCircleOverlay.maxRadius);
+    } else {
+      _radius = (_radius - TideBreathSession.circleSpeed * dt).clamp(0.0, _BreathCircleOverlay.maxRadius);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduceMotion) {
+      return CustomPaint(
+        painter: _BreathCirclePainter(
+          radius: widget.growActive ? _BreathCircleOverlay.maxRadius : 0,
+          matched: widget.matched,
+        ),
+      );
+    }
     return AnimatedBuilder(
       animation: _frame,
       builder: (context, _) {
-        _tick(elapsedOfController());
+        _tick(_frame.lastElapsedDuration ?? _last);
         return CustomPaint(
           painter: _BreathCirclePainter(
             radius: _radius,
-            ghosts: _ghosts,
             matched: widget.matched,
           ),
         );
       },
     );
   }
-
-  Duration elapsedOfController() => _frame.lastElapsedDuration ?? _last;
 
   @override
   void dispose() {
@@ -468,42 +520,24 @@ class _BreathCircleOverlayState extends State<_BreathCircleOverlay>
 }
 
 class _BreathCirclePainter extends CustomPainter {
-  _BreathCirclePainter({
-    required this.radius,
-    required this.ghosts,
-    required this.matched,
-  });
+  _BreathCirclePainter({required this.radius, required this.matched});
 
   final double radius;
-  final List<({double radius, double opacity})> ghosts;
   final bool matched;
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (radius <= 0.5) return;
+    // 只保留一个圆圈（§4.1：删除原有两个同心圆环）。
     final c = Offset(size.width / 2, size.height / 2);
-    for (final g in ghosts) {
-      canvas.drawCircle(
-        c,
-        g.radius,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = Color.lerp(
-            const Color(0x00E8DFC8),
-            const Color(0x66E8DFC8),
-            g.opacity,
-          )!,
-      );
-    }
     canvas.drawCircle(
       c,
       radius,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = matched ? 2.4 : 1.4
-        ..color = matched ? const Color(0x88D8B36A) : const Color(0x44E8DFC8),
+        ..strokeWidth = matched ? 2.6 : 1.8
+        ..color = matched ? const Color(0x88D8B36A) : const Color(0x55E8DFC8),
     );
-    canvas.drawCircle(c, radius * 0.92, Paint()..color = const Color(0x0DE8DFC8));
   }
 
   @override

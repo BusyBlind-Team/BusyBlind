@@ -44,7 +44,7 @@ Future<void> main() async {
   sounds.register(SoundCatalog.catalog);
   await sounds.preload({
     for (final e in SoundCatalog.catalog.entries)
-      if (!e.key.startsWith('bgm_')) e.key: e.value,
+      if (!SoundCatalog.isStreamedKey(e.key)) e.key: e.value,
   });
 
   // 时钟：全局音频时间轴（用户校准已随"时机校准"功能删除——Bug 描述 #3）。

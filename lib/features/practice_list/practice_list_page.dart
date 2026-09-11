@@ -5,7 +5,6 @@ import '../../core/practice/practice_art.dart';
 import '../../core/practice/practice_host.dart';
 import '../../core/practice/practice_manifest.dart';
 import '../../core/practice/practice_registry.dart';
-import '../../core/practice/practice_types.dart';
 import '../../theme.dart';
 
 /// 修 · 修行列表：纵向滑动列表，点击方块立刻滑动使其居中，
@@ -25,7 +24,7 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
 
   int? _selected;
   int _breathTier = 0;
-  bool _sleepMode = false;
+  bool _handsFree = false;
 
   GlobalKey _keyFor(int index) => _itemKeys.putIfAbsent(index, GlobalKey.new);
 
@@ -55,7 +54,7 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
     final params = <String, Object?>{};
     if (manifest.id == 'tide_breath') {
       params['tier'] = _breathTier;
-      params['sleepMode'] = _sleepMode;
+      params['handsFree'] = _handsFree;
     }
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -149,9 +148,9 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
                   secondChild: _PracticeDetail(
                     manifest: m,
                     breathTier: _breathTier,
-                    sleepMode: _sleepMode,
+                    handsFree: _handsFree,
                     onTierChanged: (t) => setState(() => _breathTier = t),
-                    onSleepModeChanged: (v) => setState(() => _sleepMode = v),
+                    onHandsFreeChanged: (v) => setState(() => _handsFree = v),
                     onConfirm: () => _confirm(index),
                     onCancel: () => setState(() => _selected = null),
                   ),
@@ -169,24 +168,24 @@ class _PracticeDetail extends StatelessWidget {
   const _PracticeDetail({
     required this.manifest,
     required this.breathTier,
-    required this.sleepMode,
+    required this.handsFree,
     required this.onTierChanged,
-    required this.onSleepModeChanged,
+    required this.onHandsFreeChanged,
     required this.onConfirm,
     required this.onCancel,
   });
 
   final PracticeManifest manifest;
   final int breathTier;
-  final bool sleepMode;
+  final bool handsFree;
   final ValueChanged<int> onTierChanged;
-  final ValueChanged<bool> onSleepModeChanged;
+  final ValueChanged<bool> onHandsFreeChanged;
   final VoidCallback onConfirm;
   final VoidCallback onCancel;
 
   String get _lengthLabel {
     final d = manifest.typicalLength;
-    if (manifest.id == 'tide_breath') return '自定（三档节奏）';
+    if (manifest.id == 'tide_breath') return '5分钟';
     if (manifest.id == 'fish_petals') return '自定';
     if (manifest.id == 'cross_river') return '由跳数决定';
     if (manifest.id == 'wooden_fish') return '108 下（约 2 分钟）';
@@ -208,26 +207,14 @@ class _PracticeDetail extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 大横幅插图已移到修行准备开始界面（Bug 描述 #2：介绍详情里不放）。
-          Row(
-            children: [
-              Icon(
-                manifest.eyeMode == EyeMode.eyesClosed
-                    ? Icons.nights_stay
-                    : Icons.remove_red_eye_outlined,
-                color: AppTheme.goldDim,
-                size: 18,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                manifest.eyeMode.label,
-                style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
-              ),
-              const Spacer(),
-              Text(
-                _lengthLabel,
-                style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
-              ),
-            ],
+          // §11.1：删除"全程闭眼"整行（含左侧眼睛图标与文字），
+          // 只保留右上角的时长标签。
+          Align(
+            alignment: Alignment.centerRight,
+            child: Text(
+              _lengthLabel,
+              style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
+            ),
           ),
           if (manifest.introTags.isNotEmpty)
             Padding(
@@ -241,20 +228,7 @@ class _PracticeDetail extends StatelessWidget {
                 ),
               ),
             ),
-          if (manifest.needsHeadphones)
-            const Padding(
-              padding: EdgeInsets.only(top: 6),
-              child: Row(
-                children: [
-                  Icon(Icons.headphones, color: AppTheme.inkFaint, size: 16),
-                  SizedBox(width: 6),
-                  Text(
-                    '建议佩戴耳机（时机判定依赖立体声与低延迟）',
-                    style: TextStyle(color: AppTheme.inkFaint, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
+          // §11.1(2)：删除"建议佩戴耳机"整行（对所有修行项生效）。
           if (manifest.intro.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 10),
@@ -269,19 +243,20 @@ class _PracticeDetail extends StatelessWidget {
             ),
           // 旧版玩法说明段已按新改进意见删除（介绍文本以 manifest.intro 为准）。
           if (manifest.id == 'tide_breath') ...[
-            // 呼吸法选择已移到开始界面（改进列表）。
+            // §7.1：删除助眠模式；§9.1：原"助眠模式"开关位置改为
+            // "解放双手模式"（呼吸法选择仍在开始界面）。
             const SizedBox(height: 6),
             Row(
               children: [
                 Switch(
-                  value: sleepMode,
-                  onChanged: onSleepModeChanged,
+                  value: handsFree,
+                  onChanged: onHandsFreeChanged,
                   activeThumbColor: AppTheme.gold,
                 ),
                 const SizedBox(width: 6),
                 const Expanded(
                   child: Text(
-                    '助眠模式：结束不弹结算页，音频渐弱至静音，修为次日补发',
+                    '解放双手模式：不用动手，专心呼吸，但无法积攒修为',
                     style: TextStyle(color: AppTheme.inkFaint, fontSize: 12),
                   ),
                 ),

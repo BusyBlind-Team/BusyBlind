@@ -12,6 +12,7 @@ import 'package:busy_blind/practices/count_rain.dart';
 import 'package:busy_blind/practices/cross_river.dart';
 import 'package:busy_blind/practices/fish_petals.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
+import 'package:busy_blind/practices/tide_breath.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/material.dart';
@@ -21,8 +22,9 @@ import 'helpers/fake_clock.dart';
 
 /// 构造一套纯内存的 PracticeContext（无真实音频、时钟可控）。
 (PracticeContext, FakeClock, SilentSoundBank, EventScheduler) makeContext(
-  void Function(FinishReason) requestFinish,
-) {
+  void Function(FinishReason) requestFinish, {
+  Map<String, Object?> params = const {},
+}) {
   final clock = FakeClock();
   final sounds = SilentSoundBank();
   late final EventScheduler scheduler;
@@ -35,6 +37,7 @@ import 'helpers/fake_clock.dart';
     sounds: sounds,
     recorder: recorder,
     input: input,
+    params: params,
     requestFinish: requestFinish,
   );
   return (ctx, clock, sounds, scheduler);
@@ -853,6 +856,106 @@ void main() {
       expect(find.text(r'$_strikes / $_totalStrikes 声'), findsNothing);
       scheduler.dispose();
       session.dispose();
+    });
+  });
+
+  group('听潮（新-改进说明文档 §2–§7）', () {
+    test('4-7-8/盒式时间轴与表 1 一致，憋气段在"松开"侧', () {
+      // 4-6：按 4s + 松 6s（周期 10s）。
+      expect(kBreathMethods[0].map((e) => e.lengthUs ~/ 1000000).toList(),
+          [4, 6]);
+      expect(kBreathMethods[0].map((e) => e.pressExpected).toList(),
+          [true, false]);
+      // 盒式：按 8s（4 吸 + 4 憋）+ 松 8s（4 呼 + 4 憋），周期 16s。
+      expect(kBreathMethods[1].map((e) => e.lengthUs ~/ 1000000).toList(),
+          [4, 4, 4, 4]);
+      expect(kBreathMethods[1].map((e) => e.pressExpected).toList(),
+          [true, true, false, false]);
+      // 4-7-8：按 11s（4 吸 + 7 憋）+ 松 8s，周期 19s。
+      expect(kBreathMethods[2].map((e) => e.lengthUs ~/ 1000000).toList(),
+          [4, 7, 8]);
+      expect(kBreathMethods[2].map((e) => e.pressExpected).toList(),
+          [true, true, false]);
+    });
+
+    test('解放双手模式：自动走完时间轴，但不计修为（§7.2）', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) =
+            makeContext((_) {}, params: const {'handsFree': true});
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 3 秒引子后进入呼吸时间轴；一次都不按压也能推进相位。
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 200));
+        final afterIntro = session.debugPhaseCount;
+        clock.advanceUs(60000000); // 再走 60 秒
+        async.elapse(const Duration(seconds: 1));
+        expect(session.debugPhaseCount, greaterThan(afterIntro));
+
+        final result = session.debugResultForTest();
+        expect(result.metrics['handsFree'], isTrue);
+        expect(result.merit, 0, reason: '解放双手模式不积攒修为');
+        scheduler.dispose();
+      });
+    });
+
+    test('解放双手模式：圆圈自动跟着时间轴放大/缩小（§7.2）', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) =
+            makeContext((_) {}, params: const {'handsFree': true});
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        // 引子结束，进入 4-6 第 0 段（吸气 = 应当按住）。
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugGrowActive, isTrue, reason: '吸气段圆圈应自动放大');
+        // 走到第 1 段（呼气 = 应当松开）→ 自动缩小。
+        clock.advanceUs(4100000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugGrowActive, isFalse, reason: '呼气段圆圈应自动缩小');
+        scheduler.dispose();
+      });
+    });
+
+    test('手动模式：圆圈只跟用户按压，不会自动放大', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugGrowActive, isFalse, reason: '没按就不该放大');
+        session.onInput(tap(3100000));
+        expect(session.debugGrowActive, isTrue, reason: '按住即放大');
+        session.onInput(release(3200000));
+        expect(session.debugGrowActive, isFalse, reason: '松手即缩小');
+        scheduler.dispose();
+      });
+    });
+
+    test('手动模式：不按压则相位不吻合，同步率为 0', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 200));
+        clock.advanceUs(20000000); // 20 秒全程不按
+        async.elapse(const Duration(seconds: 1));
+        final result = session.debugResultForTest();
+        expect(result.metrics['handsFree'], isFalse);
+        expect(result.metrics['avgSync'], 0.0);
+        scheduler.dispose();
+      });
     });
   });
 }

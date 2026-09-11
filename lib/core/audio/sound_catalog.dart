@@ -22,6 +22,30 @@ abstract final class SoundCatalog {
   static const String tideLoopKey = 'tide_loop';
   static const String forestLoopKey = 'forest_loop';
 
+  // ---- 新-改进说明文档 §2/§14：环境音与呼吸指引 ----
+  /// 听潮背景：潮水（原文件名为 .mp3 实为 m4a 容器，已统一为单声道 64k）。
+  static const String ambTideKey = 'amb_tide';
+
+  /// 过河背景环境音：河流（不播五首 BGM）。
+  static const String ambRiverKey = 'amb_river';
+
+  /// 钓花叠加的环境水声：溪流。
+  static const String ambStreamKey = 'amb_stream';
+
+  /// 数雨随机二选一：鸟叫 / 虫鸣（单局内不切换）。
+  static const String ambBirdsKey = 'amb_birds';
+  static const String ambInsectsKey = 'amb_insects';
+
+  /// 听潮呼吸指引音乐（循环播放），下标与 kBreathMethods 对齐。
+  static const String guideBreath46Key = 'guide_breath_4_6';
+  static const String guideBreathBoxKey = 'guide_breath_box';
+  static const String guideBreath478Key = 'guide_breath_4_7_8';
+  static const List<String> breathGuideKeys = [
+    guideBreath46Key,
+    guideBreathBoxKey,
+    guideBreath478Key,
+  ];
+
   /// 过河引导/跟随音（Bug 描述 #8）：12 个编号音色，替换原"叮——咚"。
   /// key = 'river_1' … 'river_12'。
   static String riverSoundKey(int n) => 'river_$n';
@@ -50,6 +74,15 @@ abstract final class SoundCatalog {
     return tracks[(rng ?? Random()).nextInt(tracks.length)];
   }
 
+  /// 长音轨（BGM / 环境音 / 呼吸指引）：按需流式播放，绝不进内存池。
+  ///
+  /// 新-改进说明文档 §2/§14 起环境音是约 10 分钟的单声道音轨，整段预解码
+  /// 进 AudioPool 会白白吃掉几十 MB 内存。
+  static bool isStreamedKey(String key) =>
+      key.startsWith('bgm_') ||
+      key.startsWith('amb_') ||
+      key.startsWith('guide_');
+
   /// key → AssetSource 路径（audioplayers 的 AssetSource 会自动补 assets/ 前缀）。
   /// final 而非 const：包含 for 展开（BGM 音轨与过河编号音），编译期常量不支持。
   static final Map<String, String> catalog = {
@@ -69,6 +102,15 @@ abstract final class SoundCatalog {
     'swish': 'sfx/swish.mp3',
     'forest_loop': 'sfx/forest_loop.mp3',
     'tide_loop': 'sfx/tide_loop.mp3',
+    // 新-改进说明文档 §2/§14：环境音（长音轨，按需流式）与呼吸指引。
+    ambTideKey: 'sfx/amb_tide.m4a',
+    ambRiverKey: 'sfx/amb_river.m4a',
+    ambStreamKey: 'sfx/amb_stream.m4a',
+    ambBirdsKey: 'sfx/amb_birds.m4a',
+    ambInsectsKey: 'sfx/amb_insects.m4a',
+    guideBreath46Key: 'bgm/guide_breath_4_6.m4a',
+    guideBreathBoxKey: 'bgm/guide_breath_box.m4a',
+    guideBreath478Key: 'bgm/guide_breath_4_7_8.m4a',
     // 过河 12 个编号音色（Bug 描述 #8，替换原叮/咚）。
     for (var i = 1; i <= 12; i++) riverSoundKey(i): 'sfx/river/$i.m4a',
     for (final t in bgmTracks) t.key: 'bgm/${t.key}.m4a',
