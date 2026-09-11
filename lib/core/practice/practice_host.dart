@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,6 +61,25 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   String _bgmTrackName = '';
   late final AnimationController _bgmSpin;
 
+  // §13：本局 BGM 选择（开始界面可选），初值取全局设置。
+  int _bgmChoice = SoundCatalog.bgmTrackRandom;
+
+  /// 会话参数（可变）：BGM 相关项在 _begin() 按最终选择写入。
+  Map<String, Object?>? _params;
+  SoundBank? _sounds;
+
+  /// #2：环境音"已请求停止"标记，用于兜住尚未完成的异步起播。
+  bool _ambienceStopped = false;
+
+  /// 环境音操作统一入口：优先用 prepare 时记下的 SoundBank。
+  SoundBank get _bank => _sounds ?? ref.read(soundBankProvider);
+
+  // §14：本局叠加或替代的环境音（河流/溪流/鸟叫/虫鸣），带渐入渐出。
+  String? _ambienceKey;
+  double _ambienceLevel = 0;
+  double _ambienceTarget = 0;
+  Timer? _ambienceRamp;
+
   @override
   void initState() {
     super.initState();
@@ -85,17 +105,23 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 两个循环环境音（数雨/听潮）对应替换为同一首；选"无"则不播 BGM、
     // 环境音回退各自的默认音效。
     final store = ref.read(storeProvider);
-    final resolved = SoundCatalog.resolveTrack(store.bgmTrackIndex);
-    _bgmTrackName = resolved?.name ?? '';
-    final params = {
-      ...widget.params,
-      if (resolved != null) ...{
-        'bgmAsset': SoundCatalog.catalog[resolved.key],
-        'bgmVolume': store.bgmVolume,
-        'ambientKey': resolved.key,
-        'ambientVolume': store.bgmVolume,
-      },
+    // §13：本局用开始界面选的那一项（默认随机），全局"乐"设置作为初值。
+    _bgmChoice = store.bgmTrackIndex;
+    final policy = _session.manifest.ambience;
+    // §14.3：数雨在鸟叫/虫鸣里随机取一个，单局固定不切换。
+    _ambienceKey = switch (policy) {
+      AmbiencePolicy.riverOnly => SoundCatalog.ambRiverKey,
+      AmbiencePolicy.stream => SoundCatalog.ambStreamKey,
+      AmbiencePolicy.birdsOrInsects =>
+        Random().nextBool() ? SoundCatalog.ambBirdsKey : SoundCatalog.ambInsectsKey,
+      AmbiencePolicy.sessionOwned => SoundCatalog.ambTideKey,
+      AmbiencePolicy.none => null,
     };
+    // #3：BGM 播放参数**不在这里**生成——开始界面上还能改选，早生成会让
+    // 改选失效。这里只建可变 map，真正的取值在 _begin() 里做。
+    final params = <String, Object?>{...widget.params};
+    _params = params;
+    _sounds = sounds;
 
     final ctx = PracticeContext(
       clock: clock,
@@ -118,6 +144,9 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _bgmSpin.dispose();
+    // #2：结算后立刻返回时，渐出定时器会被取消，必须在这里兜底停掉音轨，
+    // 否则河流/溪流会跟着回到首页继续响。
+    _stopAmbienceNow();
     unawaited(_bgm.stop());
     _scheduler?.dispose();
     _session.dispose();
@@ -148,6 +177,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     if (!_prepared || _running || _finishing || _result != null) return;
     final scheduler = _scheduler!;
     scheduler.begin();
+    // #3：此刻才按最终选择生成 BGM 参数；数雨等会话在 start() 里读取。
+    _applyBgmParams();
     _session.start();
     // 声音语言：磬一声 = 开始 / 请闭眼。
     ref.read(soundBankProvider).play(SoundCatalog.chimeKey);
@@ -158,26 +189,123 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 这里不再另起 BgmPlayer，避免两个声道同播同一首（复审 R1）；
     // 但曲名与唱片动画照常展示——音乐确实在放，只是由环境循环承载
     //（二轮审查 P2：指示器不能只认 _bgm.start）。
+    final policy = _session.manifest.ambience;
     final bgmAsset = _ctx?.params['bgmAsset'] as String?;
-    if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
-      _bgm
-          .start(
-            asset: bgmAsset,
-            volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
-          )
-          .then((_) {
-        if (mounted && _running) {
-          setState(() => _bgmName = _bgm.trackName);
-          _bgmSpin.repeat();
+    if (policy == AmbiencePolicy.sessionOwned) {
+      // 听潮：潮水与呼吸指引都由会话自己起播（§2）。
+    } else {
+      if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
+        _bgm
+            .start(
+              asset: bgmAsset,
+              volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
+            )
+            .then((_) {
+          if (mounted && _running) {
+            setState(() => _bgmName = _bgm.trackName);
+            _bgmSpin.repeat();
+          }
+        });
+      } else if (bgmAsset != null) {
+        if (mounted) {
+          setState(() => _bgmName = _bgmTrackName);
         }
-      });
-    } else if (bgmAsset != null) {
-      if (mounted) {
-        setState(() => _bgmName = _bgmTrackName);
+        _bgmSpin.repeat();
       }
-      _bgmSpin.repeat();
+      // §14：过河只播河流；钓花叠溪流；数雨叠鸟叫/虫鸣。§14.5 渐入。
+      _startAmbience();
     }
     setState(() => _running = true);
+  }
+
+  /// #3：按"点开始那一刻"的最终选择生成 BGM 播放参数。
+  void _applyBgmParams() {
+    final params = _params;
+    if (params == null) return;
+    params.remove('bgmAsset');
+    params.remove('bgmVolume');
+    params.remove('ambientKey');
+    params.remove('ambientVolume');
+    final policy = _session.manifest.ambience;
+    // §14.1/§2：过河只播河流、听潮自带潮水，都不播五首 BGM。
+    final playBgm = policy != AmbiencePolicy.riverOnly &&
+        policy != AmbiencePolicy.sessionOwned;
+    final resolved = SoundCatalog.resolveTrack(_bgmChoice);
+    _bgmTrackName = playBgm ? (resolved?.name ?? '') : '';
+    if (playBgm && resolved != null) {
+      params['bgmAsset'] = SoundCatalog.catalog[resolved.key];
+      params['bgmVolume'] = ref.read(storeProvider).bgmVolume;
+      params['ambientKey'] = resolved.key;
+      params['ambientVolume'] = ref.read(storeProvider).bgmVolume;
+    }
+  }
+
+  /// 起播本局环境音并渐入（§14.5）。过河的河流随机起点（§14.1）。
+  void _startAmbience() {
+    final key = _ambienceKey;
+    if (key == null) return;
+    final sounds = _bank;
+    _ambienceStopped = false;
+    unawaited(
+      sounds
+          .startLoop(
+            key,
+            gain: 0,
+            startAt: key == SoundCatalog.ambRiverKey
+                ? Duration(seconds: Random().nextInt(300))
+                : null,
+          )
+          // #2：起播是异步的，若期间已经请求停止，补一次停止，避免音轨
+          // 在起播完成后继续留在前台。
+          .then((_) {
+        if (_ambienceStopped) unawaited(sounds.stopLoop(key));
+      }),
+    );
+    _ambienceLevel = 0;
+    _ambienceTarget = 1;
+    _ambienceRamp ??= Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _rampAmbience(),
+    );
+  }
+
+  void _rampAmbience() {
+    final key = _ambienceKey;
+    if (key == null || _ambienceLevel == _ambienceTarget) return;
+    final step = _ambienceTarget > _ambienceLevel ? 0.1 : -0.1;
+    _ambienceLevel = (_ambienceLevel + step).clamp(0.0, 1.0);
+    unawaited(_bank.setLoopGain(key, 0.35 * _ambienceLevel));
+    if (_ambienceLevel == 0 && _ambienceTarget == 0) {
+      _ambienceRamp?.cancel();
+      _ambienceRamp = null;
+      _ambienceStopped = true;
+      unawaited(_bank.stopLoop(key));
+    }
+  }
+
+  /// 立即停止环境音（#2：销毁兜底，不等渐出）。
+  void _stopAmbienceNow() {
+    _ambienceStopped = true;
+    _ambienceRamp?.cancel();
+    _ambienceRamp = null;
+    final key = _ambienceKey;
+    if (key == null) return;
+    unawaited(_bank.stopLoop(key));
+  }
+
+  /// 收口时环境音渐出（§14.5）。
+  void _fadeOutAmbience() {
+    if (_ambienceKey == null) return;
+    _ambienceTarget = 0;
+    if (_ambienceLevel == 0) {
+      _ambienceStopped = true;
+      unawaited(_bank.stopLoop(_ambienceKey!));
+      return;
+    }
+    _ambienceRamp ??= Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _rampAmbience(),
+    );
   }
 
   void _requestFinish(FinishReason reason) {
@@ -203,6 +331,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     setState(() => _running = false);
     _scheduler?.cancelAll();
     unawaited(_bgm.stop());
+    _fadeOutAmbience();
     if (mounted) {
       setState(() => _bgmName = '');
       _bgmSpin.stop();
@@ -231,11 +360,10 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
 
     final maxMerit = _session.manifest.meritBase * 3;
     final merit = result.merit.clamp(0, maxMerit);
-    final sleepMode = result.note == 'sleep_mode';
 
     try {
       // 会话历史入库是公共结算步骤（复审 R2）：成就口径读的是
-      // store.sessions，助眠局不入库，潮涌潮落/水之呼吸永远不解锁，
+      // store.sessions，漏入库会让潮涌潮落/水之呼吸永不解锁，
       // 统计与报告也会漏计这一次。
       store.addSession(
         practiceId: _session.manifest.id,
@@ -253,14 +381,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
             break;
         }
       }
-      if (sleepMode) {
-        // 助眠模式：不弹结算页，修为次日打开时补发（设计方案 7.3）。
-        store.queuePendingMerit(merit);
-      } else {
-        store.addMerit(merit);
-      }
-      // 成就评估对所有模式一致（含助眠，第 13 轮自检；历史口径靠上面
-      // 刚入库的会话，复审 R2）。
+      store.addMerit(merit);
+      // 成就评估对所有模式一致（历史口径靠上面刚入库的会话，复审 R2）。
       final freshIds = evaluateAchievements(
         store,
         lastResult: result,
@@ -270,18 +392,6 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         for (final id in freshIds)
           kAchievements.firstWhere((a) => a.id == id).title,
       ];
-
-      if (sleepMode) {
-        try {
-          await sounds.stopLoop(SoundCatalog.tideLoopKey);
-        } on Exception {
-          // 循环已停则忽略。
-        }
-        if (mounted) {
-          Navigator.of(context).maybePop();
-        }
-        return;
-      }
 
       // 声音语言：磬两声 = 结束 / 可以睁眼。
       // （Bug 描述 #3：极轻的磬已删除，新成就只以结算页徽记提示。）
@@ -322,7 +432,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         ),
       );
     } else if (_finishing) {
-      // 结算中（含助眠淡出）：只给一个安静的加载指示，不给任何可点入口。
+      // 结算中（音频淡出）：只给一个安静的加载指示，不给任何可点入口。
       child = const _BlackScaffold(
         child: Center(
           child: CircularProgressIndicator(color: Color(0xFFE8DFC8)),
@@ -344,6 +454,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
             : _StartOverlay(
                 manifest: manifest,
                 session: _session,
+                bgmChoice: _bgmChoice,
+                onBgmChoice: (v) => setState(() => _bgmChoice = v),
                 onStart: _begin,
                 onExit: () => Navigator.of(context).maybePop(),
               ),
@@ -606,12 +718,18 @@ class _StartOverlay extends StatefulWidget {
   const _StartOverlay({
     required this.manifest,
     required this.session,
+    required this.bgmChoice,
+    required this.onBgmChoice,
     required this.onStart,
     required this.onExit,
   });
 
   final PracticeManifest manifest;
   final PracticeSession session;
+
+  /// §13：本局 BGM 选择。
+  final int bgmChoice;
+  final ValueChanged<int> onBgmChoice;
   final VoidCallback onStart;
   final VoidCallback onExit;
 
@@ -620,9 +738,72 @@ class _StartOverlay extends StatefulWidget {
 }
 
 class _StartOverlayState extends State<_StartOverlay> {
+  /// §13：当前选择的显示名。
+  String get _bgmChoiceLabel {
+    final c = widget.bgmChoice;
+    if (c == SoundCatalog.bgmTrackNone) return '不要背景音乐';
+    if (c >= 0 && c < SoundCatalog.bgmTracks.length) {
+      return SoundCatalog.bgmTracks[c].name;
+    }
+    return '随机背景音乐';
+  }
+
+  /// §13：点击后弹出五首 BGM + 不要 + 随机。
+  Future<void> _pickBgm(BuildContext context) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: const Color(0xFF12100C),
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < SoundCatalog.bgmTracks.length; i++)
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    SoundCatalog.bgmTracks[i].name,
+                    style: const TextStyle(color: AppTheme.ink),
+                  ),
+                  trailing: widget.bgmChoice == i
+                      ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
+                      : null,
+                  onTap: () => Navigator.of(context).pop(i),
+                ),
+              ListTile(
+                dense: true,
+                title: const Text(
+                  '随机背景音乐',
+                  style: TextStyle(color: AppTheme.ink),
+                ),
+                trailing: widget.bgmChoice == SoundCatalog.bgmTrackRandom
+                    ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
+                    : null,
+                onTap: () => Navigator.of(context).pop(SoundCatalog.bgmTrackRandom),
+              ),
+              ListTile(
+                dense: true,
+                title: const Text(
+                  '不要背景音乐',
+                  style: TextStyle(color: AppTheme.ink),
+                ),
+                trailing: widget.bgmChoice == SoundCatalog.bgmTrackNone
+                    ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
+                    : null,
+                onTap: () => Navigator.of(context).pop(SoundCatalog.bgmTrackNone),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null) widget.onBgmChoice(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final choices = widget.session.startChoices;
+    final details = widget.session.startChoiceDetails;
     final art = practiceArtFor(widget.session.manifest.iconKey);
 
     return Center(
@@ -684,6 +865,24 @@ class _StartOverlayState extends State<_StartOverlay> {
                       ),
                     ),
                 ],
+              ),
+              // §6：点击某种呼吸法后，展开它的节奏与难度详情。
+              if (details.length == choices.length) ...[
+                const SizedBox(height: 14),
+                _StartChoiceDetailCard(
+                  detail: details[widget.session.startChoice.clamp(
+                    0,
+                    details.length - 1,
+                  )],
+                ),
+              ],
+            ],
+            // §13：BGM 手动选择入口（听潮/过河不提供）。
+            if (widget.manifest.allowsBgmChoice) ...[
+              const SizedBox(height: 18),
+              _BgmChoiceRow(
+                label: _bgmChoiceLabel,
+                onTap: () => _pickBgm(context),
               ),
             ],
             const SizedBox(height: 44),
@@ -830,6 +1029,70 @@ class SummaryChip extends StatelessWidget {
             style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// §6：开始界面展开的呼吸法详情（节奏 + 难度）。
+class _StartChoiceDetailCard extends StatelessWidget {
+  const _StartChoiceDetailCard({required this.detail});
+
+  final StartChoiceDetail detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0x0FE8DFC8),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            detail.rhythm,
+            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            detail.note,
+            style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// §13：开始界面的"BGM 选择"入口。
+class _BgmChoiceRow extends StatelessWidget {
+  const _BgmChoiceRow({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.music_note, color: Color(0x88E8DFC8), size: 16),
+            const SizedBox(width: 8),
+            Text(
+              '背景音乐：$label',
+              style: const TextStyle(color: Color(0xAAE8DFC8), fontSize: 12),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.expand_more, color: Color(0x66E8DFC8), size: 16),
+          ],
+        ),
       ),
     );
   }

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/app_store.dart';
 import '../../di.dart';
 import '../../theme.dart';
+import '../tutorial/sound_guide.dart';
 import '../report/report_page.dart';
 
 /// 我（右页）：v0.1 占位页。
@@ -53,6 +54,18 @@ class MePage extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 24),
+          // §12：常驻入口，随时查看/试听声音语言。
+          ListTile(
+            leading: const Icon(Icons.hearing_outlined, color: AppTheme.goldDim),
+            title: const Text('声音指引', style: TextStyle(color: AppTheme.ink)),
+            subtitle: const Text(
+              '查看并试听每一种声音的含义',
+              style: TextStyle(color: AppTheme.inkFaint, fontSize: 12),
+            ),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(builder: (_) => const SoundGuidePage()),
+            ),
+          ),
           ListTile(
             leading: const Icon(Icons.auto_awesome, color: AppTheme.gold),
             title: const Text('修炼报告', style: TextStyle(color: AppTheme.ink)),

@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/audio/sound_catalog.dart';
 import '../../di.dart';
 import '../../shell/app_shell.dart';
+import 'sound_guide.dart';
 import '../../theme.dart';
 
 /// 首启教程（两页式，Bug 描述 #3）：
@@ -20,24 +20,6 @@ class TutorialPage extends ConsumerStatefulWidget {
 class _TutorialPageState extends ConsumerState<TutorialPage> {
   int _step = 0;
 
-  /// final 而非 const：riverSoundKey 是方法调用，不能进编译期常量。
-  static final List<({String sound, String meaning, List<String> keys})>
-  _soundRows = [
-    (sound: '轻快的筝', meaning: '开始 / 请闭眼', keys: [SoundCatalog.chimeKey]),
-    (sound: '沉重的筝', meaning: '结束 / 可以睁眼', keys: [SoundCatalog.chimeDoubleKey]),
-    (
-      sound: '过河引导音',
-      meaning: '过河：复现这个间隔',
-      keys: [SoundCatalog.riverSoundKey(1), SoundCatalog.riverSoundKey(2)],
-    ),
-    (
-      sound: '花瓣/杂物上钩的声音',
-      meaning: '花瓣/杂物上钩了',
-      keys: [SoundCatalog.fishDingKey, SoundCatalog.fishDongKey],
-    ),
-    (sound: '木鱼声', meaning: '一秒一声的节拍', keys: [SoundCatalog.muyuKey]),
-  ];
-
   void _next() {
     if (_step < 1) {
       setState(() => _step++);
@@ -52,14 +34,6 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute<void>(builder: (_) => const AppShell()),
     );
-  }
-
-  Future<void> _playDemo(List<String> keys) async {
-    final sounds = ref.read(soundBankProvider);
-    for (final key in keys) {
-      await sounds.play(key);
-      await Future<void>.delayed(const Duration(milliseconds: 900));
-    }
   }
 
   @override
@@ -192,44 +166,7 @@ class _TutorialPageState extends ConsumerState<TutorialPage> {
           style: TextStyle(color: AppTheme.inkDim, fontSize: 14, height: 1.6),
         ),
         const SizedBox(height: 18),
-        for (final row in _soundRows)
-          Container(
-            margin: const EdgeInsets.only(bottom: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0x10FFFFFF),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        row.sound,
-                        style: const TextStyle(
-                          color: AppTheme.gold,
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        row.meaning,
-                        style: const TextStyle(color: AppTheme.inkDim, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '试听',
-                  onPressed: () => _playDemo(row.keys),
-                  icon: const Icon(Icons.volume_up_outlined, color: AppTheme.goldDim),
-                ),
-              ],
-            ),
-          ),
+        const SoundGuideList(),
         const SizedBox(height: 8),
       ],
     );

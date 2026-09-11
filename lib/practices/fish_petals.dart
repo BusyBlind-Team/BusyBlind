@@ -77,6 +77,8 @@ class FishPetalsSession extends PracticeSession {
   @override
   PracticeManifest get manifest => const PracticeManifest(
     id: 'fish_petals',
+    // §14.2：在所选 BGM 之上叠加溪流水声。
+    ambience: AmbiencePolicy.stream,
     name: '钓花',
     subtitle: '叮则收手，咚则空竿',
     tags: [TrainingTag.patience, TrainingTag.collect],

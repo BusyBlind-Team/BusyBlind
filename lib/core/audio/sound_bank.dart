@@ -18,7 +18,10 @@ abstract class SoundBank {
   Future<void> play(String key, {double gain = 1.0});
 
   /// 循环长音轨（潮汐、白噪声背景）。
-  Future<void> startLoop(String key, {double gain = 1.0});
+  ///
+  /// [startAt] 用于从音轨的随机时间点起播（新-改进说明文档 §14：环境音
+  /// "随机选择音频的一个时间点开始播放，播完后从头循环"）。
+  Future<void> startLoop(String key, {double gain = 1.0, Duration? startAt});
   Future<void> setLoopGain(String key, double gain);
   Future<void> stopLoop(String key);
 
@@ -30,6 +33,10 @@ abstract class SoundBank {
 /// 测试与静音模式用的空实现。
 class SilentSoundBank implements SoundBank {
   final List<String> played = [];
+
+  /// 循环音轨的起停记录（复审 #2/#3 的回归观察点）。
+  final List<String> loopsStarted = [];
+  final List<String> loopsStopped = [];
 
   @override
   Future<void> register(Map<String, String> assetByKey) async {}
@@ -43,13 +50,17 @@ class SilentSoundBank implements SoundBank {
   }
 
   @override
-  Future<void> startLoop(String key, {double gain = 1.0}) async {}
+  Future<void> startLoop(String key, {double gain = 1.0, Duration? startAt}) async {
+    loopsStarted.add(key);
+  }
 
   @override
   Future<void> setLoopGain(String key, double gain) async {}
 
   @override
-  Future<void> stopLoop(String key) async {}
+  Future<void> stopLoop(String key) async {
+    loopsStopped.add(key);
+  }
 
   @override
   Future<void> pauseAll() async {}
@@ -102,13 +113,20 @@ class AudioPlayersSoundBank implements SoundBank {
   }
 
   @override
-  Future<void> startLoop(String key, {double gain = 1.0}) async {
+  Future<void> startLoop(
+    String key, {
+    double gain = 1.0,
+    Duration? startAt,
+  }) async {
     final asset = _assets[key];
     assert(asset != null, 'SoundBank: 未预加载音轨 "$key"');
     if (asset == null) return;
     var player = _loops[key];
     player ??= await _createLoopPlayer(key, asset);
     await player.setVolume(gain.clamp(0.0, 1.0));
+    if (startAt != null && startAt > Duration.zero) {
+      await player.seek(startAt);
+    }
     await player.resume();
   }
 

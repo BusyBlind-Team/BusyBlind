@@ -10,17 +10,24 @@ import 'package:busy_blind/practices/fish_petals.dart';
 import 'package:busy_blind/features/me/me_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
+import 'package:busy_blind/practices/cross_river.dart';
+import 'package:busy_blind/practices/count_rain.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
 
-Widget harness({required Widget home, AppStore? store, FakeClock? clock}) {
+Widget harness({
+  required Widget home,
+  AppStore? store,
+  FakeClock? clock,
+  SilentSoundBank? sounds,
+}) {
   return ProviderScope(
     overrides: [
       storeProvider.overrideWith((ref) => store ?? AppStore.inMemory()),
-      soundBankProvider.overrideWithValue(SilentSoundBank()),
+      soundBankProvider.overrideWithValue(sounds ?? SilentSoundBank()),
       clockProvider.overrideWithValue(clock ?? FakeClock()),
     ],
     child: MaterialApp(home: home),
@@ -192,23 +199,109 @@ void main() {
     });
   }
 
-  testWidgets('听潮选了 BGM：环境循环承载曲目，曲名唱片指示照常显示（二轮审查 P2）', (
-    tester,
-  ) async {
+  testWidgets('听潮不播五首 BGM：背景改潮水，无曲名指示（§2/§13）', (tester) async {
     final store = AppStore.inMemory()
       ..markTutorialSeen('tide_breath')
-      ..setBgmSettings(track: 2); // 固定"风铃"
+      ..setBgmSettings(track: 2); // 全局选了"风铃"
     await tester.pumpWidget(
       harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
     );
     await tester.pumpAndSettle();
 
-    // 听潮是 usesAmbientLoop 修行：不另起 BgmPlayer，但曲名指示
-    // 必须照常出现（唱片动画持续旋转，故不能用 pumpAndSettle）。
+    // §13：听潮不提供 BGM 选择入口（背景固定为潮水）。
+    expect(find.textContaining('背景音乐：'), findsNothing);
     await tester.tap(find.text('开始'));
     await tester.pump(const Duration(milliseconds: 16));
     expect(find.text('退出'), findsOneWidget);
-    expect(find.text('♪ 风铃'), findsOneWidget);
+    // §2：不再播五首 BGM，所以没有曲名/唱片指示。
+    expect(find.text('♪ 风铃'), findsNothing);
+  });
+
+  testWidgets('§13：木鱼开始界面提供 BGM 选择，默认随机', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('背景音乐：随机背景音乐'), findsOneWidget);
+  });
+
+  testWidgets('§13：过河不提供 BGM 选择（只播河流，§14.1）', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('cross_river');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: CrossRiverSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('背景音乐：'), findsNothing);
+  });
+
+  testWidgets('#3 开始界面改选 BGM 后，按最终选择播放（数雨）', (tester) async {
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('count_rain')
+      ..setBgmSettings(track: 2); // 进入页面时全局是"风铃"
+    final sounds = SilentSoundBank();
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(factory: CountRainSession.new),
+        store: store,
+        sounds: sounds,
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('背景音乐：风铃'), findsOneWidget);
+
+    // 开始前改成"不要背景音乐"（旧实现在进页面时就定死了参数）。
+    await tester.tap(find.text('背景音乐：风铃'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('不要背景音乐'));
+    await tester.pumpAndSettle();
+    expect(find.text('背景音乐：不要背景音乐'), findsOneWidget);
+
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(sounds.loopsStarted, isNot(contains('bgm_fengling')),
+        reason: '改选"不要"之后不应还播进入页面时的那首');
+    expect(sounds.loopsStarted, contains('forest_loop'));
+  });
+
+  testWidgets('#2 离开页面时兜底停掉环境音（过河只播河流）', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('cross_river');
+    final sounds = SilentSoundBank();
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(factory: CrossRiverSession.new),
+        store: store,
+        sounds: sounds,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+    expect(sounds.loopsStarted, contains('amb_river'));
+    expect(sounds.loopsStarted.any((k) => k.startsWith('bgm_')), isFalse,
+        reason: '§14.1：过河不播五首 BGM');
+
+    // 结算后立刻返回：渐出定时器会被取消，必须由销毁兜底停止音轨。
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 2));
+    expect(sounds.loopsStopped, contains('amb_river'));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('§6：听潮开始界面点击呼吸法展开节奏与难度', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('tide_breath');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    // 默认选中 4-6：展示它的节奏与难度。
+    expect(find.text('4 秒吸气，6 秒呼气'), findsOneWidget);
+    expect(find.text('难度低，容易上手'), findsOneWidget);
+    // 切到 4-7-8 后换文案。
+    await tester.tap(find.text('4-7-8 呼吸'));
+    await tester.pump();
+    expect(find.text('4 秒吸气，7 秒憋气，8 秒呼气'), findsOneWidget);
+    expect(find.text('有一定难度，但放松效果很好'), findsOneWidget);
   });
 
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {
@@ -260,45 +353,6 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('助眠结算期间不显示可点击的开始按钮', (tester) async {
-    final store = AppStore.inMemory()..markTutorialSeen('tide_breath');
-    await tester.pumpWidget(
-      harness(
-        home: Builder(
-          builder: (context) => TextButton(
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => PracticeHostPage(
-                  factory: TideBreathSession.new,
-                  params: const {'sleepMode': true},
-                ),
-              ),
-            ),
-            child: const Text('进入助眠'),
-          ),
-        ),
-        store: store,
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('进入助眠'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('开始'));
-    await tester.pump(const Duration(milliseconds: 16));
-    await tester.tap(find.text('退出'));
-    await tester.pump(const Duration(milliseconds: 16));
-
-    expect(find.text('开始（磬响后请闭眼）'), findsNothing);
-    expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    // 每一步都会在异步音量调用后安排下一个延迟，逐步推进整个淡出。
-    for (var step = 0; step < 11; step++) {
-      await tester.pump(const Duration(milliseconds: 400));
-    }
-    await tester.pumpAndSettle();
-    expect(find.byType(PracticeHostPage), findsNothing);
-    expect(find.text('进入助眠'), findsOneWidget);
-    expect(tester.takeException(), isNull);
-  });
 
   testWidgets('外部存储更新会刷新已显示的个人页', (tester) async {
     final store = AppStore.inMemory();

@@ -54,40 +54,48 @@ void main() {
   });
   tearDownAll(() => goldenFileComparator = defaultGoldenComparator);
 
-  test('声音目录全部切到 MP3，且总体积至少减少一半', () {
-    // SFX (mp3) + 12 个过河编号音 (m4a) + 5 首 BGM (m4a)。
-    expect(SoundCatalog.catalog, hasLength(16 + 12 + 5));
+  test('声音目录格式与体积守门（含 §14 环境音与呼吸指引）', () {
+    // 16 短音效(mp3) + 12 过河编号音(m4a) + 5 BGM(m4a)
+    // + 5 环境音(m4a) + 3 呼吸指引(m4a)。
+    expect(SoundCatalog.catalog, hasLength(16 + 12 + 5 + 5 + 3));
+    // 长音轨（BGM/环境音/指引）与过河编号音一律 AAC(m4a)；短音效保持 mp3。
     expect(
       SoundCatalog.catalog.entries.every(
         (e) =>
-            (e.key.startsWith('bgm_') && e.value.endsWith('.m4a')) ||
-            (e.key.startsWith('river_') && e.value.endsWith('.m4a')) ||
-            (!e.key.startsWith('bgm_') &&
-                !e.key.startsWith('river_') &&
-                e.value.endsWith('.mp3')),
+            (SoundCatalog.isStreamedKey(e.key) || e.key.startsWith('river_'))
+                ? e.value.endsWith('.m4a')
+                : e.value.endsWith('.mp3'),
       ),
       isTrue,
     );
 
-    var sfxBytes = 0;
+    var sfxBytes = 0; // 短音效：压缩守门对象
     var riverBytes = 0;
-    var bgmBytes = 0;
-    for (final path in SoundCatalog.catalog.values) {
+    var bgmBytes = 0; // 5 首 BGM + 3 条呼吸指引
+    var ambBytes = 0; // §14 环境音（约 10 分钟单声道 64k）
+    for (final entry in SoundCatalog.catalog.entries) {
+      final path = entry.value;
       final file = File('assets/$path');
       expect(file.existsSync(), isTrue, reason: '缺少音效：${file.path}');
-      if (path.startsWith('bgm/')) {
-        bgmBytes += file.lengthSync();
+      final n = file.lengthSync();
+      if (path.startsWith('sfx/amb_')) {
+        ambBytes += n;
+      } else if (path.startsWith('bgm/')) {
+        bgmBytes += n;
       } else if (path.startsWith('sfx/river/')) {
-        riverBytes += file.lengthSync();
+        riverBytes += n;
       } else {
-        sfxBytes += file.lengthSync();
+        sfxBytes += n;
       }
     }
-    // 压缩守门只针对 SFX；过河编号音与 BGM 为正式音频素材
-    //（12 × ~2.5s AAC ≈ 2.8MB；5 首 × ~80s AAC ≈ 6MB）。
+    // 压缩守门只针对短 SFX。
     expect(sfxBytes, lessThan(2376370 ~/ 2));
     expect(riverBytes, lessThan(3 * 1024 * 1024));
-    expect(bgmBytes, lessThan(8 * 1024 * 1024));
+    // 5 首 BGM（~6.4MB）+ 3 条呼吸指引（~1.1MB）。
+    expect(bgmBytes, lessThan(9 * 1024 * 1024));
+    // §14：5 条环境音各约 10 分钟、单声道 64k AAC，合计约 24.6MB。
+    // 上界守住"裁到 10 分钟 + 单声道"的决定，防止有人把 320k 母带打进来。
+    expect(ambBytes, lessThan(30 * 1024 * 1024));
     expect(
       Directory('assets/sfx')
           .listSync()

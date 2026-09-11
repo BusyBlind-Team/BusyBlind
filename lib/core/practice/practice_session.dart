@@ -51,6 +51,17 @@ class PracticeContext {
 ///
 /// 验收标准：新增一个修行 = 一个本接口的实现 + 一条注册 + 一组音效，
 /// 不改动宿主与其他修行的任何一行。
+/// 开始选项的展开详情（新-改进说明文档 §6：点击呼吸法后展示节奏与难度）。
+class StartChoiceDetail {
+  const StartChoiceDetail({required this.rhythm, required this.note});
+
+  /// 节奏（如"4 秒吸气，6 秒呼气"）。
+  final String rhythm;
+
+  /// 难度与特点。
+  final String note;
+}
+
 abstract class PracticeSession {
   /// 玩法状态变化时递增；宿主只据此重建视觉层，不介入玩法状态机。
   final ValueNotifier<int> visualRevision = ValueNotifier<int>(0);
@@ -65,6 +76,9 @@ abstract class PracticeSession {
   /// 开始界面的可选项（如听潮的呼吸法）。空 = 无选项。
   /// 用户在开始界面点选后宿主会写回 [startChoice]，start() 时即可读取。
   List<String> get startChoices => const [];
+
+  /// 每个开始选项的展开详情，长度与 [startChoices] 对齐；空 = 不展开。
+  List<StartChoiceDetail> get startChoiceDetails => const [];
 
   int get startChoice => 0;
 

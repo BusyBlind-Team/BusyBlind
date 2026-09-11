@@ -40,18 +40,16 @@ final Map<String, PracticeTutorial> kPracticeTutorials = {
     ),
   ]),
   'tide_breath': PracticeTutorial(
+    // 新-改进说明文档 §5：原 9 页教程替换为这 6 句，顺序照录。
     [
-      PracticeTutorialPage('潮水涌起时，用鼻吸气并按住屏幕'),
-      PracticeTutorialPage('潮水退去时，用口呼气并松开屏幕'),
-      PracticeTutorialPage('开始界面可以选择呼吸法'),
-      PracticeTutorialPage('4-6呼吸：4秒吸气，6秒呼气'),
-      PracticeTutorialPage('盒式呼吸：4秒吸气，4秒憋气，4秒呼气，4秒憋气'),
-      PracticeTutorialPage('4-7-8呼吸：4秒吸气，7秒憋气，8秒呼气'),
-      PracticeTutorialPage('憋气时，请不要松开手指'),
+      PracticeTutorialPage('跟随音乐的引导，与潮水一同呼吸'),
+      PracticeTutorialPage('用鼻吸气时，按住屏幕，憋气时也不要松开'),
+      PracticeTutorialPage('用嘴呼气时，松开屏幕，直到下一次吸气'),
       PracticeTutorialPage('如此重复五分钟，不必睁眼'),
+      PracticeTutorialPage('开始界面有三种呼吸法可以选择'),
       PracticeTutorialPage('祝好梦'),
     ],
-    ambientLoopKey: SoundCatalog.tideLoopKey,
+    ambientLoopKey: SoundCatalog.ambTideKey,
   ),
   'fish_petals': PracticeTutorial([
     PracticeTutorialPage(
