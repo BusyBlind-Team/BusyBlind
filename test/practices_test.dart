@@ -4,6 +4,7 @@ import 'package:busy_blind/core/audio/event_scheduler.dart';
 import 'package:busy_blind/core/audio/input_capture.dart';
 import 'package:busy_blind/core/audio/session_recorder.dart';
 import 'package:busy_blind/core/audio/sound_bank.dart';
+import 'package:busy_blind/core/practice/practice_manifest.dart';
 import 'package:busy_blind/core/practice/practice_registry.dart';
 import 'package:busy_blind/core/practice/practice_result.dart';
 import 'package:busy_blind/core/practice/practice_session.dart';
@@ -856,6 +857,28 @@ void main() {
       expect(find.text(r'$_strikes / $_totalStrikes 声'), findsNothing);
       scheduler.dispose();
       session.dispose();
+    });
+  });
+
+  group('新-改进说明文档 §13/§14：BGM 与环境音策略', () {
+    test('每个修行的环境音策略与 BGM 选择权符合文档', () {
+      final byId = {
+        for (final f in practiceFactories) f().manifest.id: f().manifest,
+      };
+      // §14.1 过河：不播五首 BGM，只播河流；§13 不提供选择。
+      expect(byId['cross_river']!.ambience, AmbiencePolicy.riverOnly);
+      expect(byId['cross_river']!.allowsBgmChoice, isFalse);
+      // §14.2 钓花：所选 BGM + 溪流。
+      expect(byId['fish_petals']!.ambience, AmbiencePolicy.stream);
+      expect(byId['fish_petals']!.allowsBgmChoice, isTrue);
+      // §14.3 数雨：鸟叫/虫鸣随机二选一。
+      expect(byId['count_rain']!.ambience, AmbiencePolicy.birdsOrInsects);
+      // §2/§14.4 听潮：潮水 + 呼吸指引由会话自理，不提供 BGM 选择。
+      expect(byId['tide_breath']!.ambience, AmbiencePolicy.sessionOwned);
+      expect(byId['tide_breath']!.allowsBgmChoice, isFalse);
+      // 木鱼等：所选 BGM，无额外环境音。
+      expect(byId['wooden_fish']!.ambience, AmbiencePolicy.none);
+      expect(byId['wooden_fish']!.allowsBgmChoice, isTrue);
     });
   });
 

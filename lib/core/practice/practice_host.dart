@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,6 +61,15 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   String _bgmTrackName = '';
   late final AnimationController _bgmSpin;
 
+  // §13：本局 BGM 选择（开始界面可选），初值取全局设置。
+  int _bgmChoice = SoundCatalog.bgmTrackRandom;
+
+  // §14：本局叠加或替代的环境音（河流/溪流/鸟叫/虫鸣），带渐入渐出。
+  String? _ambienceKey;
+  double _ambienceLevel = 0;
+  double _ambienceTarget = 0;
+  Timer? _ambienceRamp;
+
   @override
   void initState() {
     super.initState();
@@ -85,11 +95,26 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 两个循环环境音（数雨/听潮）对应替换为同一首；选"无"则不播 BGM、
     // 环境音回退各自的默认音效。
     final store = ref.read(storeProvider);
-    final resolved = SoundCatalog.resolveTrack(store.bgmTrackIndex);
-    _bgmTrackName = resolved?.name ?? '';
+    // §13：本局用开始界面选的那一项（默认随机），全局"乐"设置作为初值。
+    _bgmChoice = store.bgmTrackIndex;
+    final resolved = SoundCatalog.resolveTrack(_bgmChoice);
+    final policy = _session.manifest.ambience;
+    // §14.1/§2：过河只播河流、听潮自带潮水，都不播五首 BGM。
+    final playBgm = policy != AmbiencePolicy.riverOnly &&
+        policy != AmbiencePolicy.sessionOwned;
+    _bgmTrackName = playBgm ? (resolved?.name ?? '') : '';
+    // §14.3：数雨在鸟叫/虫鸣里随机取一个，单局固定不切换。
+    _ambienceKey = switch (policy) {
+      AmbiencePolicy.riverOnly => SoundCatalog.ambRiverKey,
+      AmbiencePolicy.stream => SoundCatalog.ambStreamKey,
+      AmbiencePolicy.birdsOrInsects =>
+        Random().nextBool() ? SoundCatalog.ambBirdsKey : SoundCatalog.ambInsectsKey,
+      AmbiencePolicy.sessionOwned => SoundCatalog.ambTideKey,
+      AmbiencePolicy.none => null,
+    };
     final params = {
       ...widget.params,
-      if (resolved != null) ...{
+      if (playBgm && resolved != null) ...{
         'bgmAsset': SoundCatalog.catalog[resolved.key],
         'bgmVolume': store.bgmVolume,
         'ambientKey': resolved.key,
@@ -118,6 +143,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _bgmSpin.dispose();
+    _ambienceRamp?.cancel();
     unawaited(_bgm.stop());
     _scheduler?.dispose();
     _session.dispose();
@@ -158,26 +184,82 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     // 这里不再另起 BgmPlayer，避免两个声道同播同一首（复审 R1）；
     // 但曲名与唱片动画照常展示——音乐确实在放，只是由环境循环承载
     //（二轮审查 P2：指示器不能只认 _bgm.start）。
+    final policy = _session.manifest.ambience;
     final bgmAsset = _ctx?.params['bgmAsset'] as String?;
-    if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
-      _bgm
-          .start(
-            asset: bgmAsset,
-            volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
-          )
-          .then((_) {
-        if (mounted && _running) {
-          setState(() => _bgmName = _bgm.trackName);
-          _bgmSpin.repeat();
+    if (policy == AmbiencePolicy.sessionOwned) {
+      // 听潮：潮水与呼吸指引都由会话自己起播（§2）。
+    } else {
+      if (bgmAsset != null && !_session.manifest.usesAmbientLoop) {
+        _bgm
+            .start(
+              asset: bgmAsset,
+              volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
+            )
+            .then((_) {
+          if (mounted && _running) {
+            setState(() => _bgmName = _bgm.trackName);
+            _bgmSpin.repeat();
+          }
+        });
+      } else if (bgmAsset != null) {
+        if (mounted) {
+          setState(() => _bgmName = _bgmTrackName);
         }
-      });
-    } else if (bgmAsset != null) {
-      if (mounted) {
-        setState(() => _bgmName = _bgmTrackName);
+        _bgmSpin.repeat();
       }
-      _bgmSpin.repeat();
+      // §14：过河只播河流；钓花叠溪流；数雨叠鸟叫/虫鸣。§14.5 渐入。
+      _startAmbience();
     }
     setState(() => _running = true);
+  }
+
+  /// 起播本局环境音并渐入（§14.5）。过河的河流随机起点（§14.1）。
+  void _startAmbience() {
+    final key = _ambienceKey;
+    if (key == null) return;
+    final sounds = ref.read(soundBankProvider);
+    unawaited(
+      sounds.startLoop(
+        key,
+        gain: 0,
+        startAt: key == SoundCatalog.ambRiverKey
+            ? Duration(seconds: Random().nextInt(300))
+            : null,
+      ),
+    );
+    _ambienceLevel = 0;
+    _ambienceTarget = 1;
+    _ambienceRamp ??= Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _rampAmbience(),
+    );
+  }
+
+  void _rampAmbience() {
+    final key = _ambienceKey;
+    if (key == null || _ambienceLevel == _ambienceTarget) return;
+    final step = _ambienceTarget > _ambienceLevel ? 0.1 : -0.1;
+    _ambienceLevel = (_ambienceLevel + step).clamp(0.0, 1.0);
+    unawaited(ref.read(soundBankProvider).setLoopGain(key, 0.35 * _ambienceLevel));
+    if (_ambienceLevel == 0 && _ambienceTarget == 0) {
+      _ambienceRamp?.cancel();
+      _ambienceRamp = null;
+      unawaited(ref.read(soundBankProvider).stopLoop(key));
+    }
+  }
+
+  /// 收口时环境音渐出（§14.5）。
+  void _fadeOutAmbience() {
+    if (_ambienceKey == null) return;
+    _ambienceTarget = 0;
+    if (_ambienceLevel == 0) {
+      unawaited(ref.read(soundBankProvider).stopLoop(_ambienceKey!));
+      return;
+    }
+    _ambienceRamp ??= Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _rampAmbience(),
+    );
   }
 
   void _requestFinish(FinishReason reason) {
@@ -203,6 +285,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     setState(() => _running = false);
     _scheduler?.cancelAll();
     unawaited(_bgm.stop());
+    _fadeOutAmbience();
     if (mounted) {
       setState(() => _bgmName = '');
       _bgmSpin.stop();
@@ -325,6 +408,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
             : _StartOverlay(
                 manifest: manifest,
                 session: _session,
+                bgmChoice: _bgmChoice,
+                onBgmChoice: (v) => setState(() => _bgmChoice = v),
                 onStart: _begin,
                 onExit: () => Navigator.of(context).maybePop(),
               ),
@@ -587,12 +672,18 @@ class _StartOverlay extends StatefulWidget {
   const _StartOverlay({
     required this.manifest,
     required this.session,
+    required this.bgmChoice,
+    required this.onBgmChoice,
     required this.onStart,
     required this.onExit,
   });
 
   final PracticeManifest manifest;
   final PracticeSession session;
+
+  /// §13：本局 BGM 选择。
+  final int bgmChoice;
+  final ValueChanged<int> onBgmChoice;
   final VoidCallback onStart;
   final VoidCallback onExit;
 
@@ -601,9 +692,72 @@ class _StartOverlay extends StatefulWidget {
 }
 
 class _StartOverlayState extends State<_StartOverlay> {
+  /// §13：当前选择的显示名。
+  String get _bgmChoiceLabel {
+    final c = widget.bgmChoice;
+    if (c == SoundCatalog.bgmTrackNone) return '不要背景音乐';
+    if (c >= 0 && c < SoundCatalog.bgmTracks.length) {
+      return SoundCatalog.bgmTracks[c].name;
+    }
+    return '随机背景音乐';
+  }
+
+  /// §13：点击后弹出五首 BGM + 不要 + 随机。
+  Future<void> _pickBgm(BuildContext context) async {
+    final picked = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: const Color(0xFF12100C),
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (var i = 0; i < SoundCatalog.bgmTracks.length; i++)
+                ListTile(
+                  dense: true,
+                  title: Text(
+                    SoundCatalog.bgmTracks[i].name,
+                    style: const TextStyle(color: AppTheme.ink),
+                  ),
+                  trailing: widget.bgmChoice == i
+                      ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
+                      : null,
+                  onTap: () => Navigator.of(context).pop(i),
+                ),
+              ListTile(
+                dense: true,
+                title: const Text(
+                  '随机背景音乐',
+                  style: TextStyle(color: AppTheme.ink),
+                ),
+                trailing: widget.bgmChoice == SoundCatalog.bgmTrackRandom
+                    ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
+                    : null,
+                onTap: () => Navigator.of(context).pop(SoundCatalog.bgmTrackRandom),
+              ),
+              ListTile(
+                dense: true,
+                title: const Text(
+                  '不要背景音乐',
+                  style: TextStyle(color: AppTheme.ink),
+                ),
+                trailing: widget.bgmChoice == SoundCatalog.bgmTrackNone
+                    ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
+                    : null,
+                onTap: () => Navigator.of(context).pop(SoundCatalog.bgmTrackNone),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (picked != null) widget.onBgmChoice(picked);
+  }
+
   @override
   Widget build(BuildContext context) {
     final choices = widget.session.startChoices;
+    final details = widget.session.startChoiceDetails;
     final art = practiceArtFor(widget.session.manifest.iconKey);
 
     return Center(
@@ -665,6 +819,24 @@ class _StartOverlayState extends State<_StartOverlay> {
                       ),
                     ),
                 ],
+              ),
+              // §6：点击某种呼吸法后，展开它的节奏与难度详情。
+              if (details.length == choices.length) ...[
+                const SizedBox(height: 14),
+                _StartChoiceDetailCard(
+                  detail: details[widget.session.startChoice.clamp(
+                    0,
+                    details.length - 1,
+                  )],
+                ),
+              ],
+            ],
+            // §13：BGM 手动选择入口（听潮/过河不提供）。
+            if (widget.manifest.allowsBgmChoice) ...[
+              const SizedBox(height: 18),
+              _BgmChoiceRow(
+                label: _bgmChoiceLabel,
+                onTap: () => _pickBgm(context),
               ),
             ],
             const SizedBox(height: 44),
@@ -811,6 +983,70 @@ class SummaryChip extends StatelessWidget {
             style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 15),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// §6：开始界面展开的呼吸法详情（节奏 + 难度）。
+class _StartChoiceDetailCard extends StatelessWidget {
+  const _StartChoiceDetailCard({required this.detail});
+
+  final StartChoiceDetail detail;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0x0FE8DFC8),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            detail.rhythm,
+            style: const TextStyle(color: Color(0xFFE8DFC8), fontSize: 13),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            detail.note,
+            style: const TextStyle(color: Color(0x88E8DFC8), fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// §13：开始界面的"BGM 选择"入口。
+class _BgmChoiceRow extends StatelessWidget {
+  const _BgmChoiceRow({required this.label, required this.onTap});
+
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.music_note, color: Color(0x88E8DFC8), size: 16),
+            const SizedBox(width: 8),
+            Text(
+              '背景音乐：$label',
+              style: const TextStyle(color: Color(0xAAE8DFC8), fontSize: 12),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.expand_more, color: Color(0x66E8DFC8), size: 16),
+          ],
+        ),
       ),
     );
   }

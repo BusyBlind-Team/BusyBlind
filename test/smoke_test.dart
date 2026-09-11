@@ -10,6 +10,7 @@ import 'package:busy_blind/practices/fish_petals.dart';
 import 'package:busy_blind/features/me/me_page.dart';
 import 'package:busy_blind/practices/sit_quiet.dart';
 import 'package:busy_blind/practices/wooden_fish.dart';
+import 'package:busy_blind/practices/cross_river.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -192,23 +193,56 @@ void main() {
     });
   }
 
-  testWidgets('听潮选了 BGM：环境循环承载曲目，曲名唱片指示照常显示（二轮审查 P2）', (
-    tester,
-  ) async {
+  testWidgets('听潮不播五首 BGM：背景改潮水，无曲名指示（§2/§13）', (tester) async {
     final store = AppStore.inMemory()
       ..markTutorialSeen('tide_breath')
-      ..setBgmSettings(track: 2); // 固定"风铃"
+      ..setBgmSettings(track: 2); // 全局选了"风铃"
     await tester.pumpWidget(
       harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
     );
     await tester.pumpAndSettle();
 
-    // 听潮是 usesAmbientLoop 修行：不另起 BgmPlayer，但曲名指示
-    // 必须照常出现（唱片动画持续旋转，故不能用 pumpAndSettle）。
+    // §13：听潮不提供 BGM 选择入口（背景固定为潮水）。
+    expect(find.textContaining('背景音乐：'), findsNothing);
     await tester.tap(find.text('开始'));
     await tester.pump(const Duration(milliseconds: 16));
     expect(find.text('退出'), findsOneWidget);
-    expect(find.text('♪ 风铃'), findsOneWidget);
+    // §2：不再播五首 BGM，所以没有曲名/唱片指示。
+    expect(find.text('♪ 风铃'), findsNothing);
+  });
+
+  testWidgets('§13：木鱼开始界面提供 BGM 选择，默认随机', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('背景音乐：随机背景音乐'), findsOneWidget);
+  });
+
+  testWidgets('§13：过河不提供 BGM 选择（只播河流，§14.1）', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('cross_river');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: CrossRiverSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    expect(find.textContaining('背景音乐：'), findsNothing);
+  });
+
+  testWidgets('§6：听潮开始界面点击呼吸法展开节奏与难度', (tester) async {
+    final store = AppStore.inMemory()..markTutorialSeen('tide_breath');
+    await tester.pumpWidget(
+      harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
+    );
+    await tester.pumpAndSettle();
+    // 默认选中 4-6：展示它的节奏与难度。
+    expect(find.text('4 秒吸气，6 秒呼气'), findsOneWidget);
+    expect(find.text('难度低，容易上手'), findsOneWidget);
+    // 切到 4-7-8 后换文案。
+    await tester.tap(find.text('4-7-8 呼吸'));
+    await tester.pump();
+    expect(find.text('4 秒吸气，7 秒憋气，8 秒呼气'), findsOneWidget);
+    expect(find.text('有一定难度，但放松效果很好'), findsOneWidget);
   });
 
   testWidgets('抽签动画中离开页面不会读取已卸载的 ref', (tester) async {

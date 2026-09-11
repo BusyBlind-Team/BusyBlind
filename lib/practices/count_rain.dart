@@ -52,6 +52,8 @@ class CountRainSession extends PracticeSession {
     meritBase: 10,
     iconKey: 'count_rain',
     usesAmbientLoop: true,
+    // §14.3：叠加随机一种鸟叫/虫鸣（单局固定）。
+    ambience: AmbiencePolicy.birdsOrInsects,
     rulesText: '只有雨，没有钟。雨滴大约三到十秒落下一滴。\n'
         '全程不用动手，只管在心里默数。\n三分钟后雨停，会问你这个数。',
     introTags: '专注·白噪声',

@@ -78,6 +78,9 @@ class CrossRiverSession extends PracticeSession {
   @override
   PracticeManifest get manifest => const PracticeManifest(
     id: 'cross_river',
+    // §14.1：不播五首 BGM，只播河流；§13：不提供 BGM 选择。
+    allowsBgmChoice: false,
+    ambience: AmbiencePolicy.riverOnly,
     name: '过河',
     subtitle: '在心里复现那个间隔',
     tags: [TrainingTag.focus, TrainingTag.rhythm],

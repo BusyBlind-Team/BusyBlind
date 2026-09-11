@@ -110,6 +110,13 @@ class TideBreathSession extends PracticeSession {
   @override
   List<String> get startChoices => kBreathMethodLabels;
 
+  /// §6：开始界面点击呼吸法后展开的节奏与难度。
+  @override
+  List<StartChoiceDetail> get startChoiceDetails => [
+    for (final d in kBreathMethodDetails)
+      StartChoiceDetail(rhythm: d.rhythm, note: d.note),
+  ];
+
   @override
   int get startChoice => _breathMethod;
 
@@ -119,6 +126,9 @@ class TideBreathSession extends PracticeSession {
   @override
   PracticeManifest get manifest => const PracticeManifest(
     id: 'tide_breath',
+    // §2/§13：音频由会话自理（潮水 + 呼吸指引），不提供 BGM 选择。
+    allowsBgmChoice: false,
+    ambience: AmbiencePolicy.sessionOwned,
     name: '听潮',
     subtitle: '潮涨时吸气，潮落时呼气',
     tags: [TrainingTag.breath, TrainingTag.sleep],
@@ -127,7 +137,7 @@ class TideBreathSession extends PracticeSession {
     meritBase: 10,
     iconKey: 'tide_breath',
     allowManualEnd: true,
-    usesAmbientLoop: true,
+    usesAmbientLoop: false,
     rulesText: '潮涨渐强时，按住屏幕吸气；潮落渐弱时，松开屏幕呼气。憋气段保持按住。\n跟随音乐的引导，与潮水一同呼吸。',
     introTags: '呼吸·潮水·5分钟',
     intro: '潮涌，潮落，这是自然的呼吸。跟随音乐的引导，与潮水一同呼吸，如此重复五分钟，不必睁眼。',
