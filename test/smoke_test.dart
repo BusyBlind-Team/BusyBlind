@@ -368,9 +368,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // 普通成就：风味文案下方用小字注明达成条件。
-    expect(find.text('达成条件：累计登录 1 天'), findsOneWidget);
-    expect(find.text('达成条件：完成 1 次木鱼'), findsOneWidget);
-    expect(find.text('达成条件：修为达到 50'), findsOneWidget);
+    // 条件文案逐字取自《文案：成就》括号内的原文。
+    expect(find.text('达成条件：登陆天数达到1'), findsOneWidget);
+    expect(find.text('达成条件：进行1次木鱼'), findsOneWidget);
+    expect(find.text('达成条件：修为等级达到居士'), findsOneWidget);
     // 31 条常规成就各有一条条件小字（再加隐藏区无）。
     expect(find.textContaining('达成条件：'), findsNWidgets(31));
 
