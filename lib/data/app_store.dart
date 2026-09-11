@@ -125,8 +125,8 @@ class AppStore extends ChangeNotifier {
     'achievements': data['achievements'] ?? <String>[],
     'pendingMerit': data['pendingMerit'] ?? <Object?>[],
     'sessions': data['sessions'] ?? <Object?>[],
-    'lUserUs': data['lUserUs'] ?? 0,
-    // LLM 连接配置（默认智谱 GLM 预设、Key 留空）与已生成的修炼报告。
+    // lUserUs 字段已废弃（校准功能删除，Bug 描述 #3）；老存档里的
+    // 残留值不再读入，也不迁移。
     'llm': data['llm'] ??
         {
           'baseUrl': LlmPresets.glm.baseUrl,
@@ -400,13 +400,7 @@ class AppStore extends ChangeNotifier {
   static const int kMaxReports = 10;
 
   // ---- 校准 ----
-
-  int get lUserUs => _data['lUserUs']! as int;
-  set lUserUs(int us) {
-    _data['lUserUs'] = us;
-    _save();
-    notifyListeners();
-  }
+  // 用户时机校准（lUserUs）已随"时机校准"功能整体删除——Bug 描述 #3。
 
   // ---- 登录天数（成就"刹那/禅七/……"口径：累计到访的自然日数）----
 

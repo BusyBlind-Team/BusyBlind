@@ -19,7 +19,8 @@ import 'motion_gate.dart';
 /// 主界面的常驻基础态——不在修行列表里，不是修行插件，没有结算页，
 /// 退出即回主界面。反挂机三重判定（设计方案 6.4）：
 /// 1. 进入后台立即暂停计时（本页生命周期观察）；
-/// 2. 每 5 分钟一声极轻的磬，30 秒内轻触任意处确认在场，超时则暂停计时（不惩罚）；
+/// 2. 每 5 分钟一次在场确认：屏上出现"你在吗"，30 秒内轻触任意处，
+///    超时则暂停计时（不惩罚）；
 /// 3. 持续大幅位移（如走路）暂停计时——MotionGate 加速度窗口判定。
 class MeditationPage extends ConsumerStatefulWidget {
   const MeditationPage({super.key});
@@ -111,11 +112,11 @@ class _MeditationPageState extends ConsumerState<MeditationPage>
       store.addMeditationMerit(1);
     }
 
-    // 每 5 分钟：极轻的磬 + 30 秒在场确认窗口。
+    // 每 5 分钟：30 秒在场确认窗口（Bug 描述 #3：极轻的磬已删除，
+    // 只以屏上文字提示"你在吗"）。
     if (_elapsedSec >= _nextChimeSec && !_awaitingConfirm) {
       _awaitingConfirm = true;
       _nextChimeSec += _chimeIntervalSec;
-      ref.read(soundBankProvider).play(SoundCatalog.chimeSoftKey, gain: 0.35);
       _confirmTimer = Timer(
         const Duration(seconds: _confirmWindowSec),
         () {

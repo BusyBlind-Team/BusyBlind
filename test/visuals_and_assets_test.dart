@@ -55,30 +55,38 @@ void main() {
   tearDownAll(() => goldenFileComparator = defaultGoldenComparator);
 
   test('声音目录全部切到 MP3，且总体积至少减少一半', () {
-    // SFX (mp3) + 5 首 BGM (m4a)。
-    expect(SoundCatalog.catalog, hasLength(24));
+    // SFX (mp3) + 12 个过河编号音 (m4a) + 5 首 BGM (m4a)。
+    expect(SoundCatalog.catalog, hasLength(16 + 12 + 5));
     expect(
       SoundCatalog.catalog.entries.every(
         (e) =>
             (e.key.startsWith('bgm_') && e.value.endsWith('.m4a')) ||
-            (!e.key.startsWith('bgm_') && e.value.endsWith('.mp3')),
+            (e.key.startsWith('river_') && e.value.endsWith('.m4a')) ||
+            (!e.key.startsWith('bgm_') &&
+                !e.key.startsWith('river_') &&
+                e.value.endsWith('.mp3')),
       ),
       isTrue,
     );
 
     var sfxBytes = 0;
+    var riverBytes = 0;
     var bgmBytes = 0;
     for (final path in SoundCatalog.catalog.values) {
       final file = File('assets/$path');
       expect(file.existsSync(), isTrue, reason: '缺少音效：${file.path}');
       if (path.startsWith('bgm/')) {
         bgmBytes += file.lengthSync();
+      } else if (path.startsWith('sfx/river/')) {
+        riverBytes += file.lengthSync();
       } else {
         sfxBytes += file.lengthSync();
       }
     }
-    // 压缩守门只针对 SFX；BGM 为正式音乐素材（5 首 × ~80s AAC ≈ 6MB）。
+    // 压缩守门只针对 SFX；过河编号音与 BGM 为正式音频素材
+    //（12 × ~2.5s AAC ≈ 2.8MB；5 首 × ~80s AAC ≈ 6MB）。
     expect(sfxBytes, lessThan(2376370 ~/ 2));
+    expect(riverBytes, lessThan(3 * 1024 * 1024));
     expect(bgmBytes, lessThan(8 * 1024 * 1024));
     expect(
       Directory('assets/sfx')

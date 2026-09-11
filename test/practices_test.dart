@@ -136,8 +136,8 @@ void main() {
       expect(result.quality, 1.0);
       // 待对齐 #5：15 − 偏移秒；完美节奏偏移 0（107 个 1s 间隔 = 满拍总时长）。
       expect(result.merit, 15);
-      // 每 36 声一声极轻的磬：第 36、72 声（第 108 声直接收口）。
-      expect(sounds.played.where((k) => k == 'chime_soft').length, 2);
+      // 只保留敲击声（Bug 描述 #7）：里程碑磬已删，全程无额外音效。
+      expect(sounds.played.where((k) => k == 'chime_soft'), isEmpty);
       expect(sounds.played.where((k) => k == 'muyu').length, 108);
     });
 
@@ -292,57 +292,106 @@ void main() {
   });
 
   group('过河', () {
-    test('窗口内松手踩上石阶，超窗落水结算', () async {
+    /// 把时钟推进到本轮引导音结束，返回本轮目标间隔。
+    int reachGuideEnd(FakeClock clock, CrossRiverSession session) {
+      final delta = session.guideEndUs - clock.nowUs();
+      if (delta > 0) clock.advanceUs(delta);
+      return session.tUs;
+    }
+
+    test('窗口内松手踩上石阶，超窗落水结算；跟随音在按下/松手时响起', () async {
       FinishReason? reason;
-      final (ctx, _, _, scheduler) = makeContext((r) => reason = r);
+      final (ctx, clock, sounds, scheduler) = makeContext((r) => reason = r);
       final session = CrossRiverSession(rng: Random(7));
       await session.prepare(ctx);
       scheduler.begin();
       session.start();
 
-      // 第一跳：锚点 = 叮后 500ms 的咚；T = t1。
+      // 第一轮：引导结束后起手，正点复现 T。
       expect(session.jumpNo, 1);
-      final anchor = session.dongAnchorUs;
-      final t1 = session.t1Us;
-      session.onInput(tap(anchor)); // 按下时刻不作硬判定
-      session.onInput(release(anchor + t1)); // 正点复现
+      expect(session.roundSounds, (1, 2, 3, 4));
+      final t1 = reachGuideEnd(clock, session);
+      session.onInput(tap(session.guideEndUs)); // 按下 = 跟随音 c 起播
+      session.onInput(release(session.guideEndUs + t1)); // 松手 = 跟随音 d 起播
+      expect(sounds.played, contains('river_3'));
+      expect(sounds.played, contains('river_4'));
       expect(session.jumpNo, 2);
 
-      // 第二跳：故意拖倍间隔 → 落水。
-      final anchorB = session.dongAnchorUs;
-      final t1b = session.t1Us;
-      session.onInput(tap(anchorB));
-      session.onInput(release(anchorB + t1b * 2));
+      // 第二轮：故意拖倍间隔 → 落水。
+      reachGuideEnd(clock, session);
+      final t2 = session.tUs;
+      session.onInput(tap(session.guideEndUs));
+      session.onInput(release(session.guideEndUs + t2 * 2));
       expect(reason, FinishReason.completed); // 玩法已请求收口
 
       final result = await session.finish(reason!);
       expect(session.finished, isTrue); // finish() 之后置位
       expect(result.metrics['jumps'], 1);
-      expect(result.merit, 1); // min(round(1 × 0.6), 20)
+      expect(result.merit, 1); // round(100 分 / 100)
       scheduler.dispose();
     });
 
-    test('踩滑（1.5 倍窗口内）不死，但难度不递进', () async {
-      FinishReason? reason;
-      final (ctx, _, _, scheduler) = makeContext((r) => reason = r);
+    test('引导未播完不起手：早按下被忽略，不触发跟随音', () async {
+      final (ctx, clock, sounds, scheduler) = makeContext((_) {});
       final session = CrossRiverSession(rng: Random(7));
       await session.prepare(ctx);
       scheduler.begin();
       session.start();
 
-      final anchor = session.dongAnchorUs;
-      final t1 = session.t1Us;
-      final window = (t1 * 0.15).round() < 180000 ? 180000 : (t1 * 0.15).round();
-      session.onInput(tap(anchor));
-      session.onInput(release(anchor + t1 + (window * 1.2).round()));
-      expect(session.finished, isFalse);
-      expect(reason, isNull);
-      expect(session.jumpNo, 2); // 踩滑仍在石阶上
+      session.onInput(tap(100000)); // 引导期内按下
+      expect(sounds.played.where((k) => k.startsWith('river_')), isEmpty);
 
+      reachGuideEnd(clock, session);
+      session.onInput(tap(session.guideEndUs));
+      expect(sounds.played, contains('river_3'));
       scheduler.dispose();
     });
 
-    test('难度递进与 叮-咚-咚 变奏：连踩 10 阶（每跳偏差 0.1s 判成功）', () {
+    test('事件延迟派送：引导结束前按下、结束后才派送，仍被忽略（P2）', () async {
+      final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+      final session = CrossRiverSession(rng: Random(7));
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      // 事件发生在引导期内，但界面卡顿使其在引导结束后才被处理。
+      final earlyPressUs = session.guideEndUs - 200000;
+      expect(earlyPressUs, greaterThan(0));
+      reachGuideEnd(clock, session);
+      expect(clock.nowUs(), greaterThanOrEqualTo(session.guideEndUs));
+
+      session.onInput(tap(earlyPressUs));
+      // 按处理时刻判断会把这个事件当成合法起手；按事件时刻判断则忽略。
+      expect(sounds.played, isNot(contains('river_3')),
+          reason: '引导结束前发生的按下不应触发跟随音');
+
+      // 同一处理时刻下的合法起手仍然照常生效。
+      session.onInput(tap(session.guideEndUs));
+      expect(sounds.played, contains('river_3'));
+      scheduler.dispose();
+    });
+
+    test('音频延迟补偿：判定窗口在基础窗口上放宽 250ms', () async {
+      FinishReason? reason;
+      final (ctx, clock, _, scheduler) = makeContext((r) => reason = r);
+      final session = CrossRiverSession(rng: Random(7));
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      // 偏差落在基础窗口之外、放宽窗口之内（+320ms）：旧判会落水，现应踩滑通过。
+      final t = reachGuideEnd(clock, session);
+      final baseWindow = (t * 0.15).round() < 180000 ? 180000 : (t * 0.15).round();
+      final slipDev = baseWindow + 320000;
+      session.onInput(tap(session.guideEndUs));
+      session.onInput(release(session.guideEndUs + t + slipDev));
+      expect(session.finished, isFalse);
+      expect(reason, isNull);
+      expect(session.jumpNo, 2); // 踩滑仍在石阶上
+      scheduler.dispose();
+    });
+
+    test('12 个编号音六轮一循环：序列按表折返并回到第 1 轮', () {
       fakeAsync((async) {
         final (ctx, clock, _, scheduler) = makeContext((_) {});
         final session = CrossRiverSession(rng: Random(7));
@@ -351,32 +400,33 @@ void main() {
         scheduler.begin();
         session.start();
 
-        var variationSeen = false;
-        for (var i = 1; i <= 10; i++) {
-          final anchor = session.dongAnchorUs;
-          final t = session.t1Us;
-          clock.advanceUs(anchor + 100000);
-          session.onInput(tap(anchor + 100000));
-          session.onInput(release(anchor + 100000 + t));
-          if (session.variation) {
-            // 变奏第二段：在第二声咚后 0.1s 起手，复现 T2。
-            variationSeen = true;
-            final anchor2 = anchor + t;
-            final t2 = session.t2Us;
-            clock.advanceUs(anchor2 + 100000);
-            session.onInput(tap(anchor2 + 100000));
-            session.onInput(release(anchor2 + 100000 + t2));
-          }
-          expect(session.jumpNo, i + 1, reason: '第 $i 跳应成功');
+        const expected = [
+          (1, 2, 3, 4),
+          (5, 6, 7, 8),
+          (9, 10, 11, 12),
+          (12, 11, 10, 9),
+          (8, 7, 6, 5),
+          (4, 3, 2, 1),
+        ];
+        for (var i = 1; i <= 13; i++) {
+          expect(
+            session.roundSounds,
+            expected[(i - 1) % 6],
+            reason: '第 $i 步的音色序列',
+          );
+          final t = reachGuideEnd(clock, session);
+          clock.advanceUs(100000);
+          session.onInput(tap(session.guideEndUs));
+          session.onInput(release(session.guideEndUs + t));
+          expect(session.jumpNo, i + 1, reason: '第 $i 步应成功');
           async.elapse(const Duration(milliseconds: 50));
         }
-        expect(variationSeen, isTrue, reason: '第 10 跳应出现过变奏');
         expect(session.finished, isFalse);
         scheduler.dispose();
       });
     });
 
-    test('连续踩滑能继续过河，但不推进下一跳难度', () {
+    test('连续踩滑能继续过河，但不推进下一轮难度', () {
       fakeAsync((async) {
         final (ctx, clock, _, scheduler) = makeContext((_) {});
         final session = CrossRiverSession(rng: Random(1));
@@ -385,17 +435,16 @@ void main() {
         session.start();
 
         for (var i = 0; i < 5; i++) {
-          final anchor = session.dongAnchorUs;
-          final t = session.t1Us;
-          final window = max((t * 0.15).round(), 180000);
-          final releaseAt = anchor + t + (window * 1.25).round();
-          session.onInput(tap(anchor));
+          final t = reachGuideEnd(clock, session);
+          final baseWindow = max((t * 0.15).round(), 180000) + 250000;
+          final releaseAt = session.guideEndUs + t + (baseWindow * 1.25).round();
           clock.advanceUs(releaseAt - clock.nowUs());
+          session.onInput(tap(session.guideEndUs));
           session.onInput(release(releaseAt));
         }
 
         expect(session.jumpNo, 6);
-        expect(session.t1Us, lessThanOrEqualTo(2000000));
+        expect(session.tUs, lessThanOrEqualTo(2000000));
         scheduler.dispose();
       });
     });
@@ -537,7 +586,7 @@ void main() {
     });
   });
 
-  group('钓花视觉（俯视池塘层，二轮审查）', () {
+  group('钓花视觉（俯视池塘层，Bug 描述 #5）', () {
     InputEvent tapAt(Offset p, {int sessionUs = 0}) => InputEvent(
       phase: PointerPhase.down,
       absAudioUs: sessionUs,
@@ -554,269 +603,185 @@ void main() {
       position: p,
     );
 
-    /// 池塘层是私有组件：按运行时类型取它的 State，用 dynamic 访问
-    /// @visibleForTesting 断言点。
-    dynamic pondState(WidgetTester tester) =>
-        tester.allStates.firstWhere(
-          (s) => s.runtimeType.toString() == '_PondLayerState',
-        );
-
-    Future<void> pumpVisual(WidgetTester tester, PracticeSession session) =>
-        tester.pumpWidget(
-          MaterialApp(
-            home: Builder(builder: (context) => session.buildVisual(context)),
-          ),
-        );
-
-    for (final hz in [30, 60, 90, 120]) {
-      testWidgets('池塘按真实时间推进：$hz Hz 与重建不改变涟漪寿命', (tester) async {
-        final (ctx, _, _, scheduler) = makeContext((_) {});
-        final session = FishPetalsSession();
-        await session.prepare(ctx);
-        scheduler.begin();
-        session.start();
-        await pumpVisual(tester, session);
-        await tester.pump();
-        session.onInput(tapAt(const Offset(400, 300)));
-        await pumpVisual(tester, session);
-        final pond = pondState(tester);
-        final initial = List<double>.from(pond.debugRippleAges as List);
-        // 任意次数的父级重建不应推进模拟时间。
-        for (var i = 0; i < 5; i++) {
-          await pumpVisual(tester, session);
-        }
-        expect(pond.debugRippleAges, initial);
-        for (var i = 0; i < hz; i++) {
-          await tester.pump(Duration(microseconds: (1000000 / hz).round()));
-        }
-        expect((pond.debugRippleAges as List).first, closeTo(1, 0.002));
-        // 长帧限幅，不能把一秒停顿全部积分为一次位移。
-        await tester.pump(const Duration(seconds: 1));
-        expect((pond.debugRippleAges as List).first, closeTo(1.05, 0.002));
-        scheduler.dispose();
-        session.dispose();
-        await tester.pumpWidget(const SizedBox());
-      });
-    }
-
-    for (final accessible in [false, true]) {
-      testWidgets('动态效果切换清除惯性和涟漪，并停止池塘 ticker：accessible=$accessible', (tester) async {
-        final (ctx, _, _, scheduler) = makeContext((_) {});
-        final session = FishPetalsSession();
-        await session.prepare(ctx);
-        scheduler.begin();
-        session.start();
-        var reduced = false;
-        Future<void> repump() => tester.pumpWidget(MaterialApp(
-          home: Builder(builder: (outer) => MediaQuery(
-            data: MediaQuery.of(outer).copyWith(
-              disableAnimations: reduced && !accessible,
-              accessibleNavigation: reduced && accessible,
-            ),
-            child: Builder(builder: (inner) => session.buildVisual(inner)),
-          )),
-        ));
-        await repump();
-        await tester.pump();
-        session.onInput(tapAt(const Offset(400, 300)));
-        await repump();
-        final pond = pondState(tester);
-        expect(pond.debugIsAnimating, true);
-        expect(pond.debugRippleAges, isNotEmpty);
-        reduced = true;
-        await repump();
-        expect(pond.debugIsAnimating, false);
-        expect(pond.debugRippleAges, isEmpty);
-        // 静态模式重复抛竿、拖动仍消费事件，但不积累隐藏运动。
-        for (var i = 0; i < 20; i++) {
-          session.onInput(release(i * 3000000));
-          await repump();
-          session.onInput(tapAt(const Offset(400, 300), sessionUs: (i + 1) * 3000000));
-          session.onInput(moveTo(const Offset(420, 320), sessionUs: (i + 1) * 3000000));
-          await repump();
-        }
-        expect(pond.debugRippleAges, isEmpty);
-        final before = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
-        expect(before.every((i) => i.vel == Offset.zero), true);
-        await tester.pump(const Duration(seconds: 10));
-        expect(pond.debugItems, before);
-        reduced = false;
-        await repump();
-        await tester.pump();
-        expect(pond.debugIsAnimating, true);
-        expect(pond.debugRippleAges, isEmpty);
-        expect(pond.debugItems, before); // 重启建立时间基准，不追赶停用时间。
-        await tester.pump(const Duration(milliseconds: 16));
-        final after = (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
-        for (var i = 0; i < before.length; i++) {
-          expect((after[i].pos - before[i].pos).distance, lessThan(1));
-        }
-        scheduler.dispose();
-        session.dispose();
-        await tester.pumpWidget(const SizedBox());
-      });
-    }
-
-    testWidgets('浮标落在手指处并跟随拖动（已拍板玩法，二轮审查 P1）', (
-      tester,
-    ) async {
+    Future<(FishPetalsSession, EventScheduler)> pumpSession(
+      WidgetTester tester, {
+      bool reduceMotion = false,
+    }) async {
       final (ctx, _, _, scheduler) = makeContext((_) {});
       final session = FishPetalsSession();
       await session.prepare(ctx);
       scheduler.begin();
       session.start();
-      await pumpVisual(tester, session);
-      await tester.pump();
-      final pond = pondState(tester);
-      expect(pond.debugBuoy, isNull); // 没落手指前没有浮标
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: reduceMotion),
+            child: Builder(builder: (context) => session.buildVisual(context)),
+          ),
+        ),
+      );
+      return (session, scheduler);
+    }
 
-      session.onInput(tapAt(const Offset(180, 260)));
-      await pumpVisual(tester, session);
-      expect(pond.debugBuoy, const Offset(180, 260)); // 落在手指处
+    test('池塘模拟：漂进浮漂判定半径才可上钩，远处不行（Bug 描述 #5）', () {
+      final pond = PondModel();
+      pond.resize(const Size(400, 600));
+      pond.setBuoy(const Offset(200, 300), shown: true);
+      pond.debugAddItem(petal: true, pos: const Offset(220, 300)); // 20px，在半径内
+      pond.debugAddItem(petal: false, pos: const Offset(200, 380)); // 80px，在半径外
+      expect(pond.hookNearestItem(within: PondModel.hookRadius), isNotNull);
+      // 半径内的那一件被标记后，只剩半径外的 → 判定不可上钩。
+      final inRange = pond.hookNearestItem(within: PondModel.hookRadius);
+      pond.hookItem(inRange!);
+      expect(pond.hookNearestItem(within: PondModel.hookRadius), isNull);
+    });
 
-      session.onInput(moveTo(const Offset(320, 300)));
-      await pumpVisual(tester, session);
+    testWidgets('浮漂落在手指处并固定，拖动不再移动（Bug 描述 #5）', (tester) async {
+      final (session, scheduler) = await pumpSession(tester);
+      final pond = session.debugPond;
+
+      session.onInput(tapAt(const Offset(300, 300)));
       await tester.pump();
-      expect(pond.debugBuoy, const Offset(320, 300)); // 按住拖动跟随
+      expect(pond.buoy, const Offset(300, 300));
+
+      session.onInput(moveTo(const Offset(360, 320)));
+      session.onInput(moveTo(const Offset(420, 340)));
+      await tester.pump();
+      expect(pond.buoy, const Offset(300, 300)); // 固定在抛竿落点
       scheduler.dispose();
       session.dispose();
     });
 
     testWidgets('杂物上钩后主动松手：上钩者脱钩恢复漂流，不再卡死', (tester) async {
-      final (ctx, _, _, scheduler) = makeContext((_) {});
-      final session = FishPetalsSession();
-      await session.prepare(ctx);
-      scheduler.begin();
-      session.start();
-      await pumpVisual(tester, session);
-      await tester.pump();
-      final pond = pondState(tester);
+      final (session, scheduler) = await pumpSession(tester);
+      final pond = session.debugPond;
 
-      // 在手指处甩杆，杂物上钩（咚）→ 池塘层绑定一名上钩者。
+      // 在手指处甩杆；提前在浮漂旁放一件杂物并强制上钩（咚）。
       session.onInput(tapAt(const Offset(400, 300)));
+      pond.debugAddItem(petal: false, pos: const Offset(410, 310));
       session.debugForceHook(petal: false);
-      await pumpVisual(tester, session);
-      await tester.pump();
-      expect(pond.debugHookedCount, 1);
+      expect(pond.hookedCount, 1);
 
-      // 主动松手 = 空竿：状态机发脱钩脉冲，物件不得永久卡在 hooked 态。
+      // 主动松手 = 空竿：状态机令其脱钩，物件不得永久卡在 hooked 态。
       session.onInput(release(800000));
-      await pumpVisual(tester, session);
-      await tester.pump();
       expect(session.debugMiscatch, 1);
-      expect(pond.debugHookedCount, 0);
+      expect(pond.hookedCount, 0);
 
       // 下一次抛竿后同样不残留卡死物件。
       session.onInput(tapAt(const Offset(200, 200), sessionUs: 4000000));
-      await pumpVisual(tester, session);
-      await tester.pump();
-      expect(pond.debugHookedCount, 0);
+      expect(pond.hookedCount, 0);
       scheduler.dispose();
       session.dispose();
     });
 
-    testWidgets('落水全屏击散：力度按屏幕对角线归一（三轮审查 P1）', (tester) async {
-      final (ctx, _, _, scheduler) = makeContext((_) {});
-      final session = FishPetalsSession();
-      await session.prepare(ctx);
-      scheduler.begin();
-      session.start();
-      await pumpVisual(tester, session);
-      await tester.pump();
-      final pond = pondState(tester);
+    testWidgets('抛竿击散限定小范围：圈外物件完全不受影响（Bug 描述 #5）', (tester) async {
+      final (session, scheduler) = await pumpSession(tester);
+      final pond = session.debugPond;
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(320, 320)); // 半径内
+      pond.debugAddItem(petal: false, pos: const Offset(40, 520)); // 远处
 
-      List<({Offset pos, Offset vel})> items() =>
-          (pond.debugItems as List).cast<({Offset pos, Offset vel})>();
-
-      const center = Offset(30, 80);
-      // 测试画布 800×600：对角线 = 屏内两点最大距离。
-      final diagonal = const Offset(800, 600).distance;
-      final before = items();
-      expect(before.length, greaterThanOrEqualTo(4));
-
-      session.onInput(tapAt(center));
-      await pumpVisual(tester, session);
-      final after = items();
-      expect(after.length, before.length);
-
-      // 这里只重建、未推进时间：径向速度增量就是击散冲量，不能暗中积分一帧。
-      for (var i = 0; i < after.length; i++) {
-        final radial = before[i].pos - center;
-        final dist = radial.distance;
-        final dir = radial / dist;
-        double dot(Offset v) => v.dx * dir.dx + v.dy * dir.dy;
-        final measured = dot(after[i].vel) - dot(before[i].vel);
-        final falloff = (1 - dist / diagonal).clamp(0.0, 1.0);
-        final expected = 300 * falloff;
-        final legacy = 300 * (1 - dist / 800).clamp(0.0, 1.0);
-        // 旧实现以 longestSide(800) 归一：屏内越远衰减越狠，远端直接
-        // 归零；对角线(1000)归一才让"按距离不同散开"在整屏都成立。
-        expect(
-          measured,
-          closeTo(expected, 1e-6),
-          reason: '距浮标 ${dist.toStringAsFixed(0)}px 处的击散冲量不符：'
-              'longestSide 归一应为 ${legacy.toStringAsFixed(1)}，'
-              '对角线归一应为 ${expected.toStringAsFixed(1)}',
-        );
-      }
+      session.onInput(tapAt(const Offset(300, 300)));
+      final items = pond.debugItems();
+      // 近处：获得径向向外的散开速度。
+      final near = items.firstWhere((e) => e.pos == const Offset(320, 320));
+      expect(near.vel, isNot(Offset.zero));
+      final radial = near.pos - const Offset(300, 300);
+      expect(radial.dx * near.vel.dx + radial.dy * near.vel.dy, greaterThan(0));
+      // 远处（170px 半径外）：力度为零，不会被击飞到屏幕边缘。
+      final far = items.firstWhere((e) => e.pos == const Offset(40, 520));
+      expect(far.vel, Offset.zero);
       scheduler.dispose();
       session.dispose();
     });
 
-    testWidgets('减少动态效果：脉冲消费照常，只跳过逐帧运动（三轮审查 P1）', (
-      tester,
-    ) async {
-      final (ctx, _, _, scheduler) = makeContext((_) {});
-      final session = FishPetalsSession();
-      await session.prepare(ctx);
-      scheduler.begin();
-      session.start();
+    test('减少动态效果：会话时间照常推进池塘，物件漂进判定半径（P1）', () {
+      fakeAsync((async) {
+        final (ctx, clock, _, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+        final pond = session.debugPond;
+        // 视图已布局（静帧也照常拿到尺寸）；只留一件在判定半径外的花瓣。
+        pond.resize(const Size(400, 600));
+        pond.debugClear();
+        const buoy = Offset(200, 300);
+        pond.debugAddItem(petal: true, pos: const Offset(200, 500));
 
-      Future<void> repump() => tester.pumpWidget(
-            MaterialApp(
-              home: Builder(
-                builder: (outer) => MediaQuery(
-                  // 只翻 disableAnimations，尺寸仍取宿主（MediaQueryData()
-                  // 默认 size 是 Size.zero，会让池塘层拿不到画布尺寸）。
-                  data: MediaQuery.of(outer).copyWith(disableAnimations: true),
-                  child: Builder(
-                    builder: (inner) => session.buildVisual(inner),
-                  ),
-                ),
-              ),
-            ),
-          );
+        session.onInput(tapAt(buoy));
+        final item = pond.nearestOf(true)!;
+        final before = (item.pos - buoy).distance;
+        expect(before, greaterThan(PondModel.hookRadius));
 
-      await repump();
-      final pond = pondState(tester);
-      expect(pond.debugBuoy, isNull);
+        // 只推进会话时钟与 100ms 轮询：界面动画完全不参与
+        //（关闭动画后 layer 的 ticker 是停的）。旧实现里模拟只由绘制帧
+        // 推进，这里物件会一动不动、永远进不了判定半径。
+        for (var i = 0; i < 40; i++) {
+          clock.advanceUs(100000);
+          async.elapse(const Duration(milliseconds: 100));
+        }
+        final after = (item.pos - buoy).distance;
+        expect(after, lessThan(before - 5),
+            reason: '会话时间应推进池塘模拟：$before → $after');
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
 
-      // 抛竿 → 浮标位置在无动画模式下也同步。
+    testWidgets('连续两次抛竿都击散起涟漪（P2：收竿要复位落水沿标记）', (tester) async {
+      final (session, scheduler) = await pumpSession(tester);
+      final pond = session.debugPond;
+
+      // 第一竿：涟漪。
+      session.onInput(tapAt(const Offset(300, 300)));
+      expect(pond.ripples, isNotEmpty);
+      pond.ripples.clear(); // 之后只观察第二竿有没有重新产生
+
+      // 收竿 → 浮漂离水。
+      session.onInput(release(800000));
+      await tester.pump();
+      expect(pond.buoyShown, isFalse);
+
+      // 第二竿（越过 2s 休竿期）：仍须击散 + 涟漪。旧实现收竿只改
+      // 可见性、不复位 _buoyWasShown，上升沿不再成立。
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(320, 320)); // 半径内
+      session.onInput(tapAt(const Offset(300, 300), sessionUs: 4000000));
+      expect(pond.ripples, isNotEmpty, reason: '第二竿没有重新起涟漪');
+      expect(pond.debugItems().single.vel, isNot(Offset.zero),
+          reason: '第二竿没有击散半径内的物件');
+      scheduler.dispose();
+      session.dispose();
+    });
+
+    testWidgets('减少动态效果：模拟停帧但玩法状态照常生效（三轮审查 P1-1）', (tester) async {
+      final (session, scheduler) = await pumpSession(tester, reduceMotion: true);
+      final pond = session.debugPond;
+
+      expect(session.debugPond.buoyShown, isFalse);
       session.onInput(tapAt(const Offset(400, 300)));
-      await repump();
-      expect(pond.debugBuoy, const Offset(400, 300));
+      expect(pond.buoy, const Offset(400, 300));
 
-      // 杂物上钩 → 绑定；主动松手 → 脱钩：全都不依赖帧驱动。
+      pond.debugAddItem(petal: false, pos: const Offset(410, 310));
       session.debugForceHook(petal: false);
-      await repump();
-      expect(pond.debugHookedCount, 1);
+      expect(pond.hookedCount, 1);
 
       session.onInput(release(800000));
-      await repump();
       expect(session.debugMiscatch, 1);
-      expect(pond.debugHookedCount, 0);
+      expect(pond.hookedCount, 0);
+      scheduler.dispose();
+      session.dispose();
+    });
 
-      // 窗口内钓起花瓣：静态帧没有"收拢消失"的过程，残留物必须即时
-      // 清除、名额即时补齐——否则计数器停在 0，画家按 1 - leaveT
-      // 取透明度，残影会全不透明地永远留在屏上。
-      expect((pond.debugItems as List).length, 4);
-      session.debugForceHook(petal: true);
-      await repump();
-      session.onInput(release(400000));
-      await repump();
-      expect(session.debugPetals, 1);
-      expect(pond.debugTerminalCount, 0);
-      expect((pond.debugItems as List).length, 4);
+    testWidgets('减少动态效果下动画帧停住（帧率独立步进只作用于动态模式）', (tester) async {
+      final (session, scheduler) = await pumpSession(tester, reduceMotion: true);
+      await tester.pump(const Duration(milliseconds: 100));
+      // 静态模式下 layer 的 ticker 已停（868dc3b 的回归点）。
+      final layer = tester.allStates.firstWhere(
+        (s) => s.runtimeType.toString() == '_PondLayerState',
+      );
+      expect((layer as dynamic).debugIsAnimating, isFalse);
       scheduler.dispose();
       session.dispose();
     });

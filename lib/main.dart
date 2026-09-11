@@ -1,3 +1,4 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
@@ -20,6 +21,19 @@ Future<void> main() async {
   // 助眠模式次日补发的修为到账。
   store.takePendingMerit();
 
+  // 音频焦点：全局"混合播放"（Bug 描述 #1）。audioplayers 默认每路
+  // 播放都申请独占音频焦点（gain），SFX 一响就把正在播的 BGM 挤停且
+  // 不会自动恢复；设为 mixWithOthers 后，Android 不再申请焦点、iOS
+  // 以 mixWithOthers 混音——BGM 与 SFX 各自独立叠加，互不中断。
+  try {
+    final context = AudioContextConfig(
+      focus: AudioContextConfigFocus.mixWithOthers,
+    ).build();
+    await AudioPlayer.global.setAudioContext(context);
+  } catch (_) {
+    // 不支持音频上下文的平台（如测试环境）静默降级。
+  }
+
   // 音效库：资源注册与短音效预解码分开（复审 R1）。
   // 全部 key 先注册——听潮/数雨在选了曲目时用同一 BGM key 做环境循环，
   // 潮起潮落的音量包络靠 startLoop/setLoopGain 作用在这条流式音轨上，
@@ -33,9 +47,8 @@ Future<void> main() async {
       if (!e.key.startsWith('bgm_')) e.key: e.value,
   });
 
-  // 时钟：载入用户校准偏移。
+  // 时钟：全局音频时间轴（用户校准已随"时机校准"功能删除——Bug 描述 #3）。
   final clock = SystemAudioClock();
-  clock.userOffsetUs = store.lUserUs;
 
   // 进入软件后屏幕常亮（改进列表）；不可用的平台静默降级。
   try {

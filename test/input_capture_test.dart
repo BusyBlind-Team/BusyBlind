@@ -6,29 +6,23 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'helpers/fake_clock.dart';
 
-class _OffsetClock extends FakeClock {
-  _OffsetClock(super.initialUs);
-
-  @override
-  int touchToAudioUs(int rawTouchUs) => rawTouchUs - userOffsetUs;
-}
-
 void main() {
-  test('calibrated pointer timestamp is projected onto the gameplay session timeline', () {
-    final clock = _OffsetClock(2000000)..userOffsetUs = 200000;
+  test('pointer timestamp is projected onto the gameplay session timeline', () {
+    final clock = FakeClock(2000000);
     final scheduler = EventScheduler(clock, SilentSoundBank());
     scheduler.begin();
     final input = InputCapture(clock);
 
-    // 触摸发生在 3.0s；校准后音频时刻应为 2.8s，映射到本会话为 0.8s。
+    // 触摸发生在 3.0s，映射到音频时间轴后投影到本会话为 1.0s。
     // 当前时钟仍在 2.0s，确保断言不依赖事件被处理时的“现在”。
+    // （用户校准偏移已随"时机校准"功能删除——Bug 描述 #3。）
     final event = input.capture(
       const PointerDownEvent(timeStamp: Duration(seconds: 3)),
       scheduler.toSessionUs,
     );
 
-    expect(event.absAudioUs, 2800000);
-    expect(event.sessionUs, 800000);
+    expect(event.absAudioUs, 3000000);
+    expect(event.sessionUs, 1000000);
     scheduler.dispose();
   });
 }

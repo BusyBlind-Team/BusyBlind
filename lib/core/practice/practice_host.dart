@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../di.dart';
 import '../../domain/achievements.dart';
 import '../../domain/petals.dart';
+import 'practice_art.dart';
 import '../../theme.dart';
 import '../audio/bgm_player.dart';
 import '../audio/event_scheduler.dart';
@@ -283,10 +284,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       }
 
       // 声音语言：磬两声 = 结束 / 可以睁眼。
+      // （Bug 描述 #3：极轻的磬已删除，新成就只以结算页徽记提示。）
       await sounds.play(SoundCatalog.chimeDoubleKey);
-      for (final _ in freshTitles) {
-        await sounds.play(SoundCatalog.chimeSoftKey);
-      }
       if (mounted) {
         setState(() {
           _result = result;
@@ -624,6 +623,7 @@ class _StartOverlayState extends State<_StartOverlay> {
   @override
   Widget build(BuildContext context) {
     final choices = widget.session.startChoices;
+    final art = practiceArtFor(widget.session.manifest.iconKey);
 
     return Center(
       child: Padding(
@@ -632,6 +632,20 @@ class _StartOverlayState extends State<_StartOverlay> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // 修行插画横幅（Bug 描述 #2）：从介绍详情移到准备开始界面。
+            if (art != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Image.asset(
+                  art,
+                  width: double.infinity,
+                  height: 132,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, _, _) => const SizedBox(height: 0),
+                ),
+              ),
+              const SizedBox(height: 18),
+            ],
             Text(
               widget.manifest.name,
               style: const TextStyle(

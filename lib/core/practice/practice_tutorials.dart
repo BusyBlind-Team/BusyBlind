@@ -19,9 +19,10 @@ class PracticeTutorial {
   final String? ambientLoopKey;
 }
 
-/// 各修行的首次教程脚本（改进列表：所有修行第一次打开时，
+/// 各修行的首次教程脚本（final：riverSoundKey 为方法调用不能入 const；
+/// 改进列表：所有修行第一次打开时，
 /// 进入开始界面前强制进入教程；浮窗点击继续，最后一段点击直接进入开始界面）。
-const Map<String, PracticeTutorial> kPracticeTutorials = {
+final Map<String, PracticeTutorial> kPracticeTutorials = {
   'wooden_fish': PracticeTutorial([
     PracticeTutorialPage('点击屏幕，可以敲响木鱼'),
     PracticeTutorialPage('保持节奏，每秒敲响一次木鱼'),
@@ -73,13 +74,14 @@ const Map<String, PracticeTutorial> kPracticeTutorials = {
   'cross_river': PracticeTutorial([
     PracticeTutorialPage('师傅走在前面，跟随他的脚步声过河吧'),
     PracticeTutorialPage(
-      '听见这个声音时，按住屏幕',
-      soundKey: SoundCatalog.heDingKey,
+      '这是引导音：两个音之间的间隔，是师傅的一步',
+      soundKey: SoundCatalog.riverSoundKey(1),
     ),
     PracticeTutorialPage(
-      '听见这个声音，松开屏幕',
-      soundKey: SoundCatalog.heDongKey,
+      '第二个音落下后，按下屏幕，会响起你的跟随音',
+      soundKey: SoundCatalog.riverSoundKey(3),
     ),
+    PracticeTutorialPage('自认为到了间隔就松开，跟随音会再次响起'),
     PracticeTutorialPage('试着走远些，别掉进河水中吧'),
   ]),
 };

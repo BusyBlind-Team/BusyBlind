@@ -1,20 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/practice/practice_art.dart';
 import '../../core/practice/practice_host.dart';
 import '../../core/practice/practice_manifest.dart';
 import '../../core/practice/practice_registry.dart';
 import '../../core/practice/practice_types.dart';
 import '../../theme.dart';
-
-/// 修行插画（iconKey → 正式美术）。打坐不在列表、静坐已移出列表，均无插画。
-const _kPracticeArt = <String, String>{
-  'wooden_fish': 'assets/art/illustrations/play_wooden_fish.webp',
-  'count_rain': 'assets/art/illustrations/count_rain.webp',
-  'tide_breath': 'assets/art/illustrations/tide_breath.webp',
-  'cross_river': 'assets/art/illustrations/cross_river.webp',
-  'fish_petals': 'assets/art/illustrations/fish_petals.webp',
-};
 
 /// 修 · 修行列表：纵向滑动列表，点击方块立刻滑动使其居中，
 /// 展开详情（图标、训练类型、耗时）与"确定 / 取消"按钮。
@@ -82,7 +74,7 @@ class _PracticeListPageState extends ConsumerState<PracticeListPage> {
         itemBuilder: (context, index) {
           final m = _manifests[index];
           final selected = _selected == index;
-          final art = _kPracticeArt[m.iconKey];
+          final art = practiceArtFor(m.iconKey);
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Column(
@@ -215,20 +207,7 @@ class _PracticeDetail extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 详情横幅：修行插画（居中构图裁为横幅）。
-          if (_kPracticeArt[manifest.iconKey] != null) ...[
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.asset(
-                _kPracticeArt[manifest.iconKey]!,
-                width: double.infinity,
-                height: 132,
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => const SizedBox(height: 0),
-              ),
-            ),
-            const SizedBox(height: 12),
-          ],
+          // 大横幅插图已移到修行准备开始界面（Bug 描述 #2：介绍详情里不放）。
           Row(
             children: [
               Icon(
