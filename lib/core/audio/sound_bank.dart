@@ -38,6 +38,9 @@ class SilentSoundBank implements SoundBank {
   final List<String> loopsStarted = [];
   final List<String> loopsStopped = [];
 
+  /// 模拟起播耗时（测试"发起播放"与"开始判定"分离用）。
+  Duration startDelay = Duration.zero;
+
   @override
   Future<void> register(Map<String, String> assetByKey) async {}
 
@@ -52,6 +55,9 @@ class SilentSoundBank implements SoundBank {
   @override
   Future<void> startLoop(String key, {double gain = 1.0, Duration? startAt}) async {
     loopsStarted.add(key);
+    if (startDelay > Duration.zero) {
+      await Future<void>.delayed(startDelay);
+    }
   }
 
   @override

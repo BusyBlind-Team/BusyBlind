@@ -174,9 +174,9 @@ class TideBreathSession extends PracticeSession {
     _segments = kBreathMethods[_breathMethod.clamp(0, kBreathMethods.length - 1)];
     _segIndex = 0;
     final now = _ctx.scheduler.nowUs();
-    // #1：指引音轨的起播有输出延迟，判定起点后移同样的时长，避免整局
-    // 恒定偏移（音轨已裁成恰好 2 个呼吸周期，循环边界与周期对齐）。
-    _begunUs = now + _introUs + _ctx.clock.outputLatencyUs;
+    // 引子结束 = **发起**指引播放的时刻；判定起点不在这里定，
+    // 而要等起播真正返回（见 _beginBreathing）。
+    _begunUs = now + _introUs;
     _breathing = false;
     _lastMatchCheckUs = now;
 
@@ -212,18 +212,27 @@ class TideBreathSession extends PracticeSession {
   /// 潮水总长 611 秒：随机起点（§14.4），留出余量避免开场即接近末尾。
   Duration _randomStart() => Duration(seconds: _rng.nextInt(480));
 
-  void _beginBreathing() {
+  /// 引子结束：**先发起指引播放并等它真的开始**，再从那一点起算判定。
+  ///
+  /// #2（复审）：不能把"发起播放"和"开始判定"放在同一时刻——播放随后
+  /// 还要经历加载与输出延迟，判定会一直领先声音（整体把回调整体延后
+  /// 并不能补偿这部分）。这里 await 起播，并把判定起点定在
+  /// "起播返回 + 输出延迟"，两块延迟都被算进去。
+  Future<void> _beginBreathing() async {
     if (_finished) return;
+    // 指引音乐在潮水之上开始循环（§2.3(2)）；await 覆盖异步加载。
+    await _ctx.sounds.startLoop(_guideKey, gain: 0, startAt: Duration.zero);
+    if (_finished) return;
+    final startUs = _ctx.scheduler.nowUs() + _ctx.clock.outputLatencyUs;
+    _begunUs = startUs;
     _breathing = true;
     // #4：前三秒是"先单独播潮水"，不参与同步统计，也不能提前响风铃。
-    // 这里把统计清零，否则开场被累计的"吻合"时长会算进第一段吸气。
     _matchedUs = 0;
-    _lastMatchCheckUs = _begunUs;
+    _lastMatchCheckUs = startUs;
     _chimedThisPhase = false;
-    _phaseEndUs = _begunUs + _segments[_segIndex].lengthUs;
+    _segIndex = 0;
+    _phaseEndUs = startUs + _segments[_segIndex].lengthUs;
     _schedulePhaseEnd();
-    // 指引音乐在潮水之上开始循环（§2.3(2)）。
-    _ctx.sounds.startLoop(_guideKey, gain: 0, startAt: Duration.zero);
     notifyVisualChanged();
   }
 
