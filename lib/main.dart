@@ -42,10 +42,18 @@ Future<void> main() async {
   // BgmPlayer 按需流式播放。
   final sounds = AudioPlayersSoundBank();
   sounds.register(SoundCatalog.catalog);
-  await sounds.preload({
-    for (final e in SoundCatalog.catalog.entries)
-      if (!SoundCatalog.isStreamedKey(e.key)) e.key: e.value,
-  });
+  // 预解码失败**绝不能拦住首帧**：这里在 runApp 之前，一旦抛出就是白屏。
+  // 真出过事——pubspec 的目录声明不递归，assets/sfx/river/ 没被声明，
+  // 12 个编号音没进包，preload 抛异常导致整个 App 白屏。
+  // 音频属于可降级能力：取不到就退化成静音，其余功能照常。
+  try {
+    await sounds.preload({
+      for (final e in SoundCatalog.catalog.entries)
+        if (!SoundCatalog.isStreamedKey(e.key)) e.key: e.value,
+    });
+  } catch (e, st) {
+    debugPrint('音频预解码失败，降级为静音启动：$e\n$st');
+  }
 
   // 时钟：全局音频时间轴（用户校准已随"时机校准"功能删除——Bug 描述 #3）。
   final clock = SystemAudioClock();

@@ -105,6 +105,34 @@ void main() {
     );
   });
 
+  test('catalog 每个资源都被 pubspec 声明（目录声明不递归，白屏根因）', () {
+    // Flutter 的 `- assets/sfx/` 只含该目录**直接**文件，不含子目录。
+    // 曾因此漏掉 assets/sfx/river/*.m4a：源文件在、测试查源码树也过了，
+    // 但没进包，main() 又在 runApp 前预解码它们 → 首帧前抛异常 → 白屏。
+    final decl = _assetDeclarations();
+    bool covered(String path) {
+      if (decl.contains(path)) return true;
+      for (final d in decl) {
+        if (d.endsWith('/') &&
+            path.startsWith(d) &&
+            !path.substring(d.length).contains('/')) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    for (final entry in SoundCatalog.catalog.entries) {
+      final path = 'assets/${entry.value}';
+      expect(
+        covered(path),
+        isTrue,
+        reason: '${entry.key} 引用的 $path 没被 pubspec 声明——不会进包，'
+            '而它在 runApp 前被预解码，会直接白屏',
+      );
+    }
+  });
+
   test('资源注册与预解码分开：BGM 只注册即可做环境循环（复审 R1）', () async {
     TestWidgetsFlutterBinding.ensureInitialized();
     final bank = AudioPlayersSoundBank();
@@ -317,4 +345,20 @@ void main() {
     expect(SoundCatalog.resolveTrack(99), isNotNull);
   });
 
+}
+
+/// 解析 pubspec.yaml 的 `assets:` 声明列表（跳过注释）。
+List<String> _assetDeclarations() {
+  final lines = File('pubspec.yaml').readAsLinesSync();
+  final start = lines.indexWhere((l) => l.trim() == 'assets:');
+  expect(start, greaterThanOrEqualTo(0), reason: 'pubspec 里找不到 assets: 段');
+  final out = <String>[];
+  for (var i = start + 1; i < lines.length; i++) {
+    final ln = lines[i];
+    if (ln.trim().isEmpty || !ln.startsWith('    ')) break;
+    final t = ln.trim();
+    if (t.startsWith('#')) continue;
+    if (t.startsWith('- ')) out.add(t.substring(2).trim());
+  }
+  return out;
 }
