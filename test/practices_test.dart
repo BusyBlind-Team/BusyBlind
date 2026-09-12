@@ -826,6 +826,69 @@ void main() {
               '游走速率必须连续（斜坡），突变会看成卡顿');
     });
 
+    test('Bug#5 碰墙反弹：反弹后连续数步确实远离墙壁（不得顶着墙）', () {
+      final pond = PondModel(rng: Random(3));
+      pond.resize(const Size(400, 600));
+      pond.setBuoy(const Offset(200, 80), shown: true);
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(20, 420));
+      final item = pond.nearestOf(true)!;
+      // 朝左墙巡航：必然先碰左墙。速度每步由 dir×speed 重算，若反弹只改
+      // vel 就会被下一步覆盖，物体会一直顶着墙（贴边抖动/停住）。
+      item.dir = const Offset(-1, 0);
+      item.speed = 40;
+      item.cruiseSpeed = 40;
+      item.legPhase = 1;
+      item.legLeft = 10;
+      item.vel = item.dir * item.speed;
+
+      var bounced = false;
+      final after = <double>[];
+      for (var i = 0; i < 60 && after.length < 5; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        if (item.dir.dx > 0) bounced = true;
+        if (bounced) after.add(item.pos.dx);
+      }
+      expect(bounced, isTrue, reason: '应发生一次左墙反弹');
+      expect(after, hasLength(5));
+      for (var i = 1; i < after.length; i++) {
+        expect(after[i], greaterThan(after[i - 1]),
+            reason: '反弹后应持续远离左墙，实测 x=$after');
+      }
+    });
+
+    test('Bug#5 惯性滑行结束不得硬停：减速全程速率连续', () {
+      final pond = PondModel(rng: Random(5));
+      pond.resize(const Size(400, 800));
+      pond.setBuoy(const Offset(200, 380), shown: true);
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(200, 700));
+      final item = pond.nearestOf(true)!;
+      // 模拟击散的大冲量，观察它衰减到停、再重新起步的全过程。
+      // 位移上限约 120/1.8≈66px，不会碰到墙、也进不了加速圈。
+      item.vel = const Offset(120, 0);
+      item.speed = 120;
+      item.dir = const Offset(1, 0);
+      item.inertia = true;
+
+      // 窗口只覆盖 惯性衰减(~1.1s) → 刹车(1.0s) → 静止 → 重新起步，
+      // 约 2.8s。再长物件就会碰到墙/浮漂，那些是合法的瞬时事件
+      //（反射约 2×速率），会掩盖本条要测的"硬停"。
+      Offset? prev;
+      var maxJump = 0.0;
+      for (var f = 0; f < 170; f++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        if (prev != null) {
+          final dv = (item.vel - prev).distance;
+          if (dv > maxJump) maxJump = dv;
+        }
+        prev = item.vel;
+      }
+      expect(maxJump, lessThan(5.0),
+          reason: '惯性衰减到停的过程中出现 ${maxJump.toStringAsFixed(1)}px/s '
+              '的单帧突变——不能在阈值处直接清零');
+    });
+
     test('Bug#5 每个花瓣/杂物都是独立对象：不共用速度或方向变量', () {
       final pond = PondModel();
       pond.resize(const Size(400, 600));
@@ -841,15 +904,23 @@ void main() {
       for (var i = 0; i < 180; i++) {
         pond.step(1 / 60, holdSeconds: 0);
       }
-      final moving = pond.items.where((e) => e.vel.distance > 0.01).toList();
-      for (var i = 0; i < moving.length; i++) {
-        for (var j = i + 1; j < moving.length; j++) {
-          final a = moving[i].vel, b = moving[j].vel;
-          final cos = (a.dx * b.dx + a.dy * b.dy) / (a.distance * b.distance);
-          expect(cos, lessThan(0.999),
-              reason: '两个物件的运动方向不应完全一致（共用变量会同步运动）');
-        }
-      }
+      // 各物件的巡航速率必须各自抽取——共用一个全局速度变量时这里会是单值。
+      final cruise = pond.items
+          .map((e) => e.cruiseSpeed.toStringAsFixed(3))
+          .toSet();
+      expect(cruise.length, greaterThan(1),
+          reason: '所有物件的巡航速率完全相同——疑似共用速度变量');
+
+      // 也不能所有物件的速度矢量完全一致（那是共用方向变量的表征）。
+      // 注意：碰墙反射后两个物件短暂同向是合法物理，所以这里只要求
+      // "并非全体一致"，不再逐对要求方向不同。
+      final moving = pond.items.where((e) => e.vel.distance > 0.01);
+      final distinct = moving
+          .map((e) =>
+              '${e.vel.dx.toStringAsFixed(3)},${e.vel.dy.toStringAsFixed(3)}')
+          .toSet();
+      expect(distinct.length, greaterThan(1),
+          reason: '所有物件的速度矢量完全一致——疑似共用速度/方向变量');
     });
 
     testWidgets('连续两次抛竿都击散起涟漪（P2：收竿要复位落水沿标记）', (tester) async {
@@ -893,6 +964,26 @@ void main() {
       session.onInput(release(800000));
       expect(session.debugMiscatch, 1);
       expect(pond.hookedCount, 0);
+      scheduler.dispose();
+      session.dispose();
+    });
+
+    testWidgets('静帧模式：画面必须自行低频刷新，不能等事件才跳位置', (tester) async {
+      // 静帧模式下模型仍由会话轮询推进（判定不能停），但画面若只在
+      // notifyVisualChanged 时重建，就会"冻结几秒 → 突然跳到新位置"。
+      // 这是录屏里 2.5s/4.25s 两次跳变的根因。
+      final (session, scheduler) = await pumpSession(tester, reduceMotion: true);
+      await tester.pump(const Duration(milliseconds: 16));
+      final dynamic layer = tester.allStates.firstWhere(
+        (s) => s.runtimeType.toString() == '_PondLayerState',
+      );
+      final before = layer.debugStaticRefreshes as int;
+      // 推进 1 秒，期间没有任何玩法事件。
+      await tester.pump(const Duration(seconds: 1));
+      final after = layer.debugStaticRefreshes as int;
+      expect(after - before, greaterThanOrEqualTo(5),
+          reason: '静帧模式 1 秒只自刷新 ${after - before} 次——'
+              '刷新太少会让画面过期，事件一来就整屏跳位置');
       scheduler.dispose();
       session.dispose();
     });

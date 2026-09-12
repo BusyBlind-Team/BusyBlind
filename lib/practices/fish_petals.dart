@@ -901,8 +901,12 @@ class PondModel {
       item.speed = item.vel.distance;
       if (item.speed > 0.01) item.dir = item.vel / item.speed;
       if (item.speed <= _wanderMin) {
+        // 不要在这里硬清零：接着走"刹车"斜坡，从**当前速率**平滑减到 0，
+        // 再进静止段换向。否则击散/碰撞之后仍是"滑着滑着突然停一下"。
         item.inertia = false;
-        _startLeg(item, center, buoyShown, bias);
+        item.cruiseSpeed = item.speed;
+        item.legPhase = 2;
+        item.legLeft = _legBrakeSec;
       }
       item.vel = item.dir * item.speed;
       return;
@@ -983,23 +987,35 @@ class PondModel {
   }
 
   /// §5.3 情况六：碰屏幕边缘镜面反射（带恢复系数）。
+  ///
+  /// **必须同时改 [PondItem.dir]**：速度每步都由 `dir × speed` 重算，
+  /// 只改 `vel` 的话下一步就被覆盖，物体会一直顶着墙（贴边抖动/停住）。
   void _bounceOffWalls(PondItem item) {
     const left = 16.0, right = 16.0, top = 50.0, bottom = 40.0;
     final w = _size.width, h = _size.height;
+    var bounced = false;
     if (item.pos.dx < left) {
       item.pos = Offset(left, item.pos.dy);
-      item.vel = Offset(item.vel.dx.abs() * _restitution, item.vel.dy);
+      item.dir = Offset(item.dir.dx.abs(), item.dir.dy);
+      bounced = true;
     } else if (item.pos.dx > w - right) {
       item.pos = Offset(w - right, item.pos.dy);
-      item.vel = Offset(-item.vel.dx.abs() * _restitution, item.vel.dy);
+      item.dir = Offset(-item.dir.dx.abs(), item.dir.dy);
+      bounced = true;
     }
     if (item.pos.dy < top) {
       item.pos = Offset(item.pos.dx, top);
-      item.vel = Offset(item.vel.dx, item.vel.dy.abs() * _restitution);
+      item.dir = Offset(item.dir.dx, item.dir.dy.abs());
+      bounced = true;
     } else if (item.pos.dy > h - bottom) {
       item.pos = Offset(item.pos.dx, h - bottom);
-      item.vel = Offset(item.vel.dx, -item.vel.dy.abs() * _restitution);
+      item.dir = Offset(item.dir.dx, -item.dir.dy.abs());
+      bounced = true;
     }
+    if (!bounced) return;
+    // 速率按恢复系数损耗，并把 vel 同步成 dir × speed（统一状态）。
+    item.speed *= _restitution;
+    item.vel = item.dir * item.speed;
   }
 
   /// §5.3 情况六：物体之间的圆-圆碰撞。
@@ -1109,14 +1125,41 @@ class _PondLayerState extends State<_PondLayer>
       if (_reduceMotion) {
         _frame.stop();
         _model.ripples.clear();
-        for (final item in _model.items) {
-          item.vel = Offset.zero;
-        }
+        // 静帧模式下模型仍由会话轮询推进（判定不能停），但画面若不重绘
+        // 就会"过期"：会话只在**状态变化**时递增 visualRevision，所以两次
+        // 判定之间没有任何重建——屏幕停在最后一帧、模型继续在走，下一次
+        // 判定（叮/咚、回到待机）重建时画面直接跳到新位置。录屏里 2.5s 的
+        // 空竿判定、4.25s 的回待机两次跳变正好落在这类事件上，中间 5~9s
+        // 的"冻住"就是事件之间的空档。这里按低频自行刷新让画面始终跟得上，
+        // 刷新率仍从 60fps 降到 ~8fps，符合"减少动态"。
+        _staticRefresh ??= Timer.periodic(_staticRefreshPeriod, (_) {
+          if (!mounted) return;
+          _staticRefreshes++;
+          setState(() {});
+        });
       } else {
+        _staticRefresh?.cancel();
+        _staticRefresh = null;
         _frame.repeat();
       }
     }
   }
+
+  /// 静帧刷新周期：约 8fps。
+  ///
+  /// 目的不是"让画面动起来"，而是让画面**不过期**：模型由会话轮询持续推进，
+  /// 只要刷新率跟得上，画面上物件的位置就与模型一致（巡航速率 ~40px/s 时
+  /// 每帧位移约 5px，看不出跳变；击散后的惯性冲刺会短暂更大，但仍是连续
+  /// 轨迹，而不是"冻住几秒再瞬移"）。同时它远低于逐帧渲染的开销，
+  /// 符合"减少动态"的本意。
+  static const Duration _staticRefreshPeriod = Duration(milliseconds: 120);
+
+  Timer? _staticRefresh;
+
+  /// 静帧模式下的自刷新次数（回归观察点：画面不能"过期"）。
+  @visibleForTesting
+  int get debugStaticRefreshes => _staticRefreshes;
+  int _staticRefreshes = 0;
 
   void _onFrame() {
     if (_reduceMotion) return;
@@ -1201,6 +1244,7 @@ class _PondLayerState extends State<_PondLayer>
 
   @override
   void dispose() {
+    _staticRefresh?.cancel();
     _frame.dispose();
     super.dispose();
   }

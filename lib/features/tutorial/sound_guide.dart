@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/audio/sound_bank.dart';
 import '../../core/audio/sound_catalog.dart';
 import '../../di.dart';
 import '../../theme.dart';
@@ -78,36 +81,86 @@ kSoundGuideRows = [
 ];
 
 /// 声音语义表列表（每条可现场试听）。
-class SoundGuideList extends ConsumerWidget {
+class SoundGuideList extends ConsumerStatefulWidget {
   const SoundGuideList({super.key});
+
+  @override
+  ConsumerState<SoundGuideList> createState() => _SoundGuideListState();
+}
+
+class _SoundGuideListState extends ConsumerState<SoundGuideList> {
+  /// 试听代号：每次点击 +1。到点的停止动作只在代号未变时执行，
+  /// 于是"上一次试听的延迟停止"不会截断刚点开的下一次。
+  int _previewToken = 0;
+
+  /// 当前正在试听的长音轨 key（离开页面时要停掉）。
+  String? _previewKey;
+
+  /// 记下音效库：dispose 里不能再安全地 read provider。
+  SoundBank? _bank;
 
   /// 试听一条。
   ///
   /// [previewSeconds] 非空时该条目是长音轨（如呼吸指引），只截取前若干秒：
   /// 用流式循环播放起播，到点停掉——短音效池播不了"前 4 秒"这种片段。
   Future<void> _playDemo(
-    WidgetRef ref,
     List<String> keys,
     int gapMs, {
     int? previewSeconds,
   }) async {
     final sounds = ref.read(soundBankProvider);
+    _bank = sounds;
     if (previewSeconds != null) {
-      for (final key in keys) {
-        await sounds.startLoop(key, gain: 0.8);
-        await Future<void>.delayed(Duration(seconds: previewSeconds));
-        await sounds.stopLoop(key);
-      }
+      final key = keys.first;
+      final token = ++_previewToken;
+      // 先停掉上一次的试听，避免两段叠在一起。
+      await _stopPreview();
+      if (!mounted || token != _previewToken) return;
+      _previewKey = key;
+      await sounds.startLoop(key, gain: 0.8);
+      await Future<void>.delayed(Duration(seconds: previewSeconds));
+      // 已被新的试听取代、或页面已销毁：本次不再动播放器，
+      // 否则会把后点开的那一段截断。
+      if (!mounted || token != _previewToken) return;
+      _previewKey = null;
+      await sounds.stopLoop(key);
       return;
     }
-    for (final key in keys) {
-      await sounds.play(key);
+    await sounds.play(keys.first);
+    for (final key in keys.skip(1)) {
       await Future<void>.delayed(Duration(milliseconds: gapMs));
+      if (!mounted) return;
+      await sounds.play(key);
     }
+    await Future<void>.delayed(Duration(milliseconds: gapMs));
+  }
+
+  Future<void> _stopPreview() async {
+    final key = _previewKey;
+    _previewKey = null;
+    if (key == null) return;
+    final bank = _bank;
+    if (bank == null) {
+      await ref.read(soundBankProvider).stopLoop(key);
+      return;
+    }
+    await bank.stopLoop(key);
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  void dispose() {
+    // 离开页面立刻停掉正在试听的长音轨；并推进代号让在途的延迟停止失效。
+    _previewToken++;
+    final key = _previewKey;
+    final bank = _bank;
+    if (key != null && bank != null) {
+      unawaited(bank.stopLoop(key));
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       children: [
         for (final row in kSoundGuideRows)
@@ -146,7 +199,6 @@ class SoundGuideList extends ConsumerWidget {
                 IconButton(
                   tooltip: '试听',
                   onPressed: () => _playDemo(
-                    ref,
                     row.keys,
                     row.gapMs,
                     previewSeconds: row.previewSeconds,
