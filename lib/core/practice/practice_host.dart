@@ -213,7 +213,7 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
         _bgmSpin.repeat();
       }
       // §14：过河只播河流；钓花叠溪流；数雨叠鸟叫/虫鸣。§14.5 渐入。
-      _startAmbience();
+      unawaited(_startAmbience());
     }
     setState(() => _running = true);
   }
@@ -241,26 +241,25 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
   }
 
   /// 起播本局环境音并渐入（§14.5）。过河的河流随机起点（§14.1）。
-  void _startAmbience() {
+  Future<void> _startAmbience() async {
     final key = _ambienceKey;
     if (key == null) return;
     final sounds = _bank;
     _ambienceStopped = false;
-    unawaited(
-      sounds
-          .startLoop(
-            key,
-            gain: 0,
-            startAt: key == SoundCatalog.ambRiverKey
-                ? Duration(seconds: Random().nextInt(300))
-                : null,
-          )
-          // #2：起播是异步的，若期间已经请求停止，补一次停止，避免音轨
-          // 在起播完成后继续留在前台。
-          .then((_) {
-        if (_ambienceStopped) unawaited(sounds.stopLoop(key));
-      }),
+    await sounds.startLoop(
+      key,
+      gain: 0,
+      startAt: key == SoundCatalog.ambRiverKey
+          ? Duration(seconds: Random().nextInt(300))
+          : null,
     );
+    // 起播是异步的，若期间已经请求停止，补一次停止，避免音轨在起播完成后
+    // 继续留在前台。更重要的是，渐入只能从真正就绪后开始，否则慢加载时
+    // 所有音量更新都会落空，播放器会永远以 0 音量启动。
+    if (_ambienceStopped) {
+      await sounds.stopLoop(key);
+      return;
+    }
     _ambienceLevel = 0;
     _ambienceTarget = 1;
     _ambienceRamp ??= Timer.periodic(
