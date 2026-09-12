@@ -27,6 +27,8 @@ class AchievementsPage extends ConsumerWidget {
             _AchievementRow(
               title: def.title,
               description: def.description,
+              // 普通成就用小字注明达成条件；隐藏成就不展示（避免剧透）。
+              condition: def.condition,
               unlocked: store.isUnlocked(def.id),
             ),
           const SizedBox(height: 20),
@@ -140,11 +142,15 @@ class _AchievementRow extends StatelessWidget {
     required this.title,
     required this.description,
     required this.unlocked,
+    this.condition,
   });
 
   final String title;
   final String description;
   final bool unlocked;
+
+  /// 达成条件；为空则不显示（隐藏成就解锁前不剧透）。
+  final String? condition;
 
   @override
   Widget build(BuildContext context) {
@@ -181,6 +187,20 @@ class _AchievementRow extends StatelessWidget {
                     fontSize: 12,
                   ),
                 ),
+                if (condition != null && condition!.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      '达成条件：$condition',
+                      style: TextStyle(
+                        color: unlocked
+                            ? AppTheme.inkFaint
+                            : AppTheme.inkFaint.withValues(alpha: 0.7),
+                        fontSize: 11,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
