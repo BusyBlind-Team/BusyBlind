@@ -130,7 +130,9 @@ class AudioPlayersSoundBank implements SoundBank {
     var player = _loops[key];
     player ??= await _createLoopPlayer(key, asset);
     await player.setVolume(gain.clamp(0.0, 1.0));
-    if (startAt != null && startAt > Duration.zero) {
+    // 复用的播放器会停在上次的位置：显式传 Duration.zero 也必须 seek，
+    // 否则上一局的进度被带进下一局（零被当成"不 seek"跳过）。
+    if (startAt != null) {
       await player.seek(startAt);
     }
     await player.resume();

@@ -102,6 +102,12 @@ class TideBreathSession extends PracticeSession {
   bool _finished = false;
   bool _fadingOut = false;
 
+  /// 是否**发起**过指引播放（加载中也算）。
+  ///
+  /// 退出清理不能只看 [_breathing]：加载期间它还是 false，会让
+  /// "加载中结束会话"两边都漏掉停止，留下静音循环的播放器。
+  bool _guideRequested = false;
+
   int _breathMethod = 0;
 
   /// 解放双手模式：自动完成呼吸，但不积攒修为（§7.2）。
@@ -220,9 +226,15 @@ class TideBreathSession extends PracticeSession {
   /// "起播返回 + 输出延迟"，两块延迟都被算进去。
   Future<void> _beginBreathing() async {
     if (_finished) return;
+    _guideRequested = true;
     // 指引音乐在潮水之上开始循环（§2.3(2)）；await 覆盖异步加载。
     await _ctx.sounds.startLoop(_guideKey, gain: 0, startAt: Duration.zero);
-    if (_finished) return;
+    if (_finished) {
+      // 加载期间会话已结束：刚起播的这条必须停掉，否则播放器留在后台
+      // 静音循环，下一局复用时还会带着旧进度。
+      await _ctx.sounds.stopLoop(_guideKey);
+      return;
+    }
     final startUs = _ctx.scheduler.nowUs() + _ctx.clock.outputLatencyUs;
     _begunUs = startUs;
     _breathing = true;
@@ -353,7 +365,8 @@ class TideBreathSession extends PracticeSession {
       await Future<void>.delayed(const Duration(milliseconds: 200));
     }
     await _ctx.sounds.stopLoop(SoundCatalog.ambTideKey);
-    if (_breathing) await _ctx.sounds.stopLoop(_guideKey);
+    // 只要发起过指引播放就要停——包括"加载中就被结束"的那一档。
+    if (_guideRequested) await _ctx.sounds.stopLoop(_guideKey);
     return result;
   }
 

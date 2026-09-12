@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:busy_blind/core/audio/event_scheduler.dart';
+import 'package:busy_blind/core/audio/sound_catalog.dart';
 import 'package:busy_blind/core/audio/input_capture.dart';
 import 'package:busy_blind/core/audio/session_recorder.dart';
 import 'package:busy_blind/core/audio/sound_bank.dart';
@@ -1011,6 +1012,36 @@ void main() {
           session.debugBegunUs,
           greaterThanOrEqualTo(3450000),
           reason: '判定起点必须把异步加载与输出延迟都算进去',
+        );
+        scheduler.dispose();
+      });
+    });
+
+    test('#P2 指引加载中结束会话：起播返回后必须停掉，不留残留播放器', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        sounds.startDelay = const Duration(milliseconds: 300); // 模拟异步加载
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 引子结束 → 发起起播，但加载还没回来（_breathing 仍为 false）。
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 100));
+        expect(sounds.loopsStarted, contains(SoundCatalog.guideBreath46Key));
+        expect(session.debugBreathing, isFalse);
+
+        // 加载途中结束会话。
+        session.finish(FinishReason.userEnded);
+
+        // 让加载与收尾淡出走完。
+        clock.advanceUs(500000);
+        async.elapse(const Duration(seconds: 3));
+        expect(
+          sounds.loopsStopped,
+          contains(SoundCatalog.guideBreath46Key),
+          reason: '加载中结束会话时，指引音轨必须被停掉（否则静音循环残留）',
         );
         scheduler.dispose();
       });
