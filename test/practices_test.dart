@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:busy_blind/core/audio/event_scheduler.dart';
+import 'package:busy_blind/core/audio/sound_catalog.dart';
 import 'package:busy_blind/core/audio/input_capture.dart';
 import 'package:busy_blind/core/audio/session_recorder.dart';
 import 'package:busy_blind/core/audio/sound_bank.dart';
@@ -986,6 +987,66 @@ void main() {
       });
     });
 
+    test('#2 起播延迟补偿：判定从声音真正开始起算（含加载与输出延迟）', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        sounds.startDelay = const Duration(milliseconds: 300); // 模拟异步加载
+        clock.outputLatencyUs = 200000; // 模拟 200ms 输出延迟
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 引子 3 秒：只播潮水，判定还没开始。
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 100));
+        expect(session.debugBreathing, isFalse, reason: '引子内不应开始判定');
+
+        // 起播耗时 300ms：fakeAsync 的延迟与 FakeClock 同步推进。
+        clock.advanceUs(300000);
+        async.elapse(const Duration(milliseconds: 300));
+        expect(session.debugBreathing, isTrue);
+        // 判定起点 = 起播返回(3.3s) + 输出延迟(0.2s) = 3.5s。
+        // 只把回调整体延后的旧写法会停在 3.2s，判定仍领先声音 0.3s。
+        expect(
+          session.debugBegunUs,
+          greaterThanOrEqualTo(3450000),
+          reason: '判定起点必须把异步加载与输出延迟都算进去',
+        );
+        scheduler.dispose();
+      });
+    });
+
+    test('#P2 指引加载中结束会话：起播返回后必须停掉，不留残留播放器', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        sounds.startDelay = const Duration(milliseconds: 300); // 模拟异步加载
+        final session = TideBreathSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 引子结束 → 发起起播，但加载还没回来（_breathing 仍为 false）。
+        clock.advanceUs(3000000);
+        async.elapse(const Duration(milliseconds: 100));
+        expect(sounds.loopsStarted, contains(SoundCatalog.guideBreath46Key));
+        expect(session.debugBreathing, isFalse);
+
+        // 加载途中结束会话。
+        session.finish(FinishReason.userEnded);
+
+        // 让加载与收尾淡出走完。
+        clock.advanceUs(500000);
+        async.elapse(const Duration(seconds: 3));
+        expect(
+          sounds.loopsStopped,
+          contains(SoundCatalog.guideBreath46Key),
+          reason: '加载中结束会话时，指引音轨必须被停掉（否则静音循环残留）',
+        );
+        scheduler.dispose();
+      });
+    });
+
     test('#4 开场三秒不参与判定：不累计吻合、也不响风铃', () {
       fakeAsync((async) {
         final (ctx, clock, sounds, scheduler) =
@@ -1001,10 +1062,13 @@ void main() {
         expect(session.debugMatchedUs, 0, reason: '开场等待不得计入同步率');
         expect(sounds.played.where((k) => k == 'wind_chime'), isEmpty,
             reason: '开场不应提前响风铃');
-        // 引子结束、进入正式呼吸后才开始统计。
+        // 引子结束：起播并开始判定（判定起点在起播返回那一刻）。
         clock.advanceUs(1500000);
-        async.elapse(const Duration(seconds: 1));
+        async.elapse(const Duration(milliseconds: 300));
         expect(session.debugBreathing, isTrue);
+        // 再推进一段会话时间，吻合才开始累计。
+        clock.advanceUs(2000000);
+        async.elapse(const Duration(seconds: 1));
         expect(session.debugMatchedUs, greaterThan(0));
         scheduler.dispose();
       });

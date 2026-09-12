@@ -38,6 +38,9 @@ class SilentSoundBank implements SoundBank {
   final List<String> loopsStarted = [];
   final List<String> loopsStopped = [];
 
+  /// 模拟起播耗时（测试"发起播放"与"开始判定"分离用）。
+  Duration startDelay = Duration.zero;
+
   @override
   Future<void> register(Map<String, String> assetByKey) async {}
 
@@ -52,6 +55,9 @@ class SilentSoundBank implements SoundBank {
   @override
   Future<void> startLoop(String key, {double gain = 1.0, Duration? startAt}) async {
     loopsStarted.add(key);
+    if (startDelay > Duration.zero) {
+      await Future<void>.delayed(startDelay);
+    }
   }
 
   @override
@@ -124,7 +130,9 @@ class AudioPlayersSoundBank implements SoundBank {
     var player = _loops[key];
     player ??= await _createLoopPlayer(key, asset);
     await player.setVolume(gain.clamp(0.0, 1.0));
-    if (startAt != null && startAt > Duration.zero) {
+    // 复用的播放器会停在上次的位置：显式传 Duration.zero 也必须 seek，
+    // 否则上一局的进度被带进下一局（零被当成"不 seek"跳过）。
+    if (startAt != null) {
       await player.seek(startAt);
     }
     await player.resume();
