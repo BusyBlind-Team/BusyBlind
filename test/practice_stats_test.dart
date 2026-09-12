@@ -1,7 +1,5 @@
-import 'dart:math';
 
 import 'package:busy_blind/data/app_store.dart';
-import 'package:busy_blind/domain/petals.dart';
 import 'package:busy_blind/domain/practice_stats.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -14,17 +12,17 @@ void main() {
       final store = AppStore.inMemory()
         ..addMerit(37)
         ..recordSign(slipId: 's1', text: '签文内容不上传', fortune: '上签')
-        ..addPetal(PetalRarity.common)
-        // 8 枚奇珍花瓣合成莲花，剩 1 枚奇珍——总瓣数 9 → 1。
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..addPetal(PetalRarity.legendary)
-        ..craftFlower(8, PetalRarity.legendary, rng: Random(0));
+        ..addPetal('osmanthus')
+        // 8 片莲花花瓣合成莲花，剩 1 片——总瓣数 9 → 1。
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..addPetal('lotus')
+        ..craftFlower('lotus');
       store.addSession(
         practiceId: 'sit_quiet',
         merit: 1,

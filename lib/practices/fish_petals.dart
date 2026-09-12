@@ -46,6 +46,14 @@ class FishPetalsSession extends PracticeSession {
     if (r < _legendaryChance + _rareChance) return PetalRarity.rare;
     return PetalRarity.common;
   }
+
+  /// 上钩那一刻就定种（新要求 #1）：先按上面的稀有度概率抽档，再在本档
+  /// 花池里等概率取一种。原来的抽取发生在合成时，现在提前到上钩，
+  /// 于是"钓到的是哪种花的花瓣"当场就确定了。
+  FlowerSpecies rollPetalSpecies() {
+    final pool = flowerSpeciesOfRarity(rollPetalRarity());
+    return pool[_rng.nextInt(pool.length)];
+  }
   static const int _meritPerPetal = 3; // 待对齐清单 #5：钓到花瓣数 × 3
 
   late PracticeContext _ctx;
@@ -88,9 +96,10 @@ class FishPetalsSession extends PracticeSession {
     iconKey: 'fish_petals',
     allowManualEnd: true,
     rulesText:
-        '长按屏幕把浮漂落在手指处，落定后就固定在那里，闭眼等。\n刚投下会惊散附近的花瓣——前两秒不会有人上钩；\n'
-        '花瓣和杂物会慢慢漂回浮漂，漂到跟前才可能上钩。\n'
-        '"叮"是花瓣碰漂，1.5 秒内松手收杆；"咚"只是杂物，收了也是空竿。',
+        '长按屏幕把浮漂落在手指处，落定后就固定在那里，闭眼等。\n'
+        '落点若正好压着花瓣或杂物，会先把它惊散——它得自己漂回来才可能上钩。\n'
+        '"叮"是花瓣碰漂，1.5 秒内松手收杆；"咚"只是杂物，收了也是空竿。\n'
+        '没抓住的东西会沉下去，但浮漂留在原处，接着等下一件就好；抬手才是收杆。',
     introTags: '趣味·耐心·收集',
     intro: '甩杆，然后静候。频繁地甩杆会惊动花瓣，所以请耐心等待，它们会上钩的。不要心急，否则只会钓起一堆杂物。',
   );
@@ -152,13 +161,13 @@ class FishPetalsSession extends PracticeSession {
         if (pending != null) _hook(now, pending);
       case _RodState.hooked:
         final held = now - _hookAtUs;
-        // "叮"后超时未收手：花瓣随波而去。
+        // "叮"后超时未收手：花瓣随波而去（浮漂不收，继续等下一件）。
         if (_hookIsPetal && held > _catchWindowUs) {
           _missed++;
-          _sinkAndRest(now);
+          _sinkKeepFishing(now);
         } else if (held > _hookTimeoutUs) {
-          // "咚"后长时间握着不放：自动空竿休整，不把状态机吊死。
-          _sinkAndRest(now);
+          // "咚"后长时间握着不放：物件沉掉、浮漂留着，不把状态机吊死。
+          _sinkKeepFishing(now);
         }
       case _RodState.idle:
       case _RodState.resting:
@@ -175,11 +184,15 @@ class FishPetalsSession extends PracticeSession {
 
   /// 上钩的东西到点沉底（复审 R3）：沉没声与视觉状态都由会话状态机在
   /// 会话时间轴上发出——不依赖绘制帧率，关闭动画/无障碍模式下时机一致。
-  void _sinkAndRest(int now) {
+  ///
+  /// 沉没**不收杆**（新要求 #2）：浮漂留在原处、状态回到"继续等待"，
+  /// 错过一次不必重新抛竿。想收杆就抬手——等待中抬手仍是收杆。
+  void _sinkKeepFishing(int now) {
     pond.sinkHooked();
     _ctx.sounds.play(SoundCatalog.fishSinkKey, gain: 0.9);
     _ctx.recorder.log('sink', {'petal': _hookIsPetal});
-    _restFrom(now);
+    _state = _RodState.casting;
+    notifyVisualChanged();
   }
 
   void _hook(int now, PondItem item) {
@@ -248,27 +261,31 @@ class FishPetalsSession extends PracticeSession {
         if (_state == _RodState.hooked) {
           final heldUs = _hookAtUs - _castStartUs;
           if (_hookIsPetal && now - _hookAtUs <= _catchWindowUs) {
-            // 收杆成功：按稀有度概率抽花瓣入库（常见70%/稀有25%/奇珍5%）。
-            final rarity = rollPetalRarity();
+            // 收杆成功：上钩那一刻就定种（常见70%/稀有25%/奇珍5%，
+            // 同稀有度内各花等概率），此刻只把结果落袋。
+            final species = rollPetalSpecies();
             _petalsCaught++;
             _waitTimesUs.add(heldUs);
             _caught.add(
               Reward(
                 kind: RewardKind.petal,
-                id: rarity.id,
-                label: '花瓣（${rarity.label}）',
+                id: species.id,
+                label: '花瓣（${species.displayName}）',
               ),
             );
             pond.catchHooked();
             _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.5);
-            _ctx.recorder.log('catch', {'petals': _petalsCaught});
+            _ctx.recorder.log('catch', {
+              'petals': _petalsCaught,
+              'flower': species.id,
+            });
             _restFrom(now);
           } else if (_hookIsPetal) {
             // 叮后超窗才松手（沉没轮询还没来得及判，三轮审查 P1）：
             // 复用轮询超时的沉没路径，保证"超时流失"不因计时器先后
-            // 有时沉没有声、有时漂回无声。
+            // 有时沉没有声、有时漂回无声。浮漂同样留在水里（新要求 #2）。
             _missed++;
-            _sinkAndRest(now);
+            _sinkKeepFishing(now);
           } else {
             // "咚"后收手 = 空竿：上钩的杂物就地脱钩恢复漂流
             //（二轮审查 P1：不发状态物件会永久卡在 hooked 态）。
@@ -498,6 +515,11 @@ class PondItem {
   /// 为真时只吃阻力，等衰减回游走量级再交回分段循环。
   bool inertia = false;
 
+  /// 被**这一竿**击散后的剩余"免上钩"时间（新要求 #3）：抛竿落点就在它
+  /// 身上（初始位于加速圈以内）时置为 [_spookMaxSec]，滑出加速圈或时间
+  /// 用尽即清零。期间既不朝浮漂转向、也不判上钩，所以它是"先被击散"。
+  double spookLeft = 0;
+
   /// 碰撞半径 / 质量（§5.3 情况六）。
   final double radius;
   final double mass;
@@ -550,6 +572,12 @@ class PondModel {
 
   /// §5.3 情况一：抛竿击散的作用半径（力度按距离衰减，沿用原参数）。
   static const double _scatterRadius = 170;
+
+  /// 新要求 #3：落点在加速圈内的物件"先击散、后议上钩"。
+  /// [_escapeMargin] 是滑行距离要多留的余量；[_spookMaxSec] 是兜底时长——
+  /// 万一被墙或别的物件挡住没能滑出去，也不能让它永远不能上钩。
+  static const double _escapeMargin = 20;
+  static const double _spookMaxSec = 2.4;
 
   /// §5.3 情况二：惯性滑行的阻力系数。
   static const double _drag = 1.8;
@@ -749,14 +777,29 @@ class PondModel {
 
   /// 抛竿惊散：只作用在浮漂周围 [_scatterRadius] 内、力度随距离衰减
   ///（Bug 描述 #5：力度减小，不再击飞到屏幕边缘）。
+  ///
+  /// 新要求 #3：落点**正好在物件身上**（初始位于加速圈以内）时优先击散——
+  /// 这种物件标记 [PondItem.spookLeft]，在被推离加速圈之前既不参与
+  /// "朝浮漂转向"也不判上钩，所以不会出现"抛在它头上就立刻上钩"。
   void scatter(Offset center) {
     for (final item in items) {
       if (item.hooked || item.sinking || item.leaving) continue;
       final d = item.pos - center;
       final dist = d.distance;
-      if (dist < 0.01 || dist > _scatterRadius) continue;
+      if (dist > _scatterRadius) continue;
+      // 落点与物件几乎重合时方向无意义：用该物件自己的随机源取一个方向。
+      final angle = item.rng.nextDouble() * 2 * pi;
+      final dir = dist > 1 ? d / dist : Offset(cos(angle), sin(angle));
       final falloff = 1 - dist / _scatterRadius;
-      item.vel += d / dist * 120 * falloff;
+      var impulse = 120 * falloff;
+      if (dist <= accelerateR) {
+        item.spookLeft = _spookMaxSec;
+        // 冲量 / 阻尼 = 滑行距离，所以要滑出加速圈，冲量至少这么大；
+        // 否则刚被推开就被圈里的转向力拽回来，等于没散开。
+        final need = _drag * (accelerateR + _escapeMargin - dist);
+        if (need > impulse) impulse = need;
+      }
+      item.vel += dir * impulse;
       _applyImpulse(item); // 击散是瞬时冲量，之后进入惯性滑行
     }
   }
@@ -841,10 +884,17 @@ class PondModel {
       // 情况二/三：惯性滑行与游走分段（速率全程连续，见 _updateWander）。
       _updateWander(item, dt, center, buoyShown, bias);
 
+      var spooked = false;
       if (buoyShown && center != null) {
         final toBuoy = center - item.pos;
         final dist = toBuoy.distance;
-        if (dist > 0.01) {
+        // 新要求 #3：被这一竿击散的物件先滑出加速圈，再谈上钩与转向。
+        if (item.spookLeft > 0) {
+          item.spookLeft -= dt;
+          spooked = dist <= accelerateR && item.spookLeft > 0;
+          if (!spooked) item.spookLeft = 0;
+        }
+        if (!spooked && dist > 0.01) {
           // 情况四：进入外层加速圈 → 立即把方向修正为面向浮漂。
           // 情况四：进入加速圈后把方向转向浮漂。
           // 用**有上限的转向速率**而不是瞬间对齐——瞬间改向在 40px/s 下

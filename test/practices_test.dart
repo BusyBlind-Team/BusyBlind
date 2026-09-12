@@ -10,6 +10,7 @@ import 'package:busy_blind/core/practice/practice_registry.dart';
 import 'package:busy_blind/core/practice/practice_result.dart';
 import 'package:busy_blind/core/practice/practice_session.dart';
 import 'package:busy_blind/core/practice/practice_types.dart';
+import 'package:busy_blind/domain/petals.dart';
 import 'package:busy_blind/practices/count_rain.dart';
 import 'package:busy_blind/practices/cross_river.dart';
 import 'package:busy_blind/practices/fish_petals.dart';
@@ -511,7 +512,7 @@ void main() {
       expect(FishPetalsSession.biteRatePerSecond(120000000), closeTo(0.60, 0.001));
     });
 
-    test('叮后窗口内收手→花瓣入库；叮超时→流失；咚久握→4s 自动休整', () {
+    test('叮后窗口内收手→花瓣入库；叮超时→流失；咚久握→4s 自动沉掉', () {
       fakeAsync((async) {
         final (ctx, clock, _, scheduler) = makeContext((_) {});
         final session = FishPetalsSession();
@@ -533,14 +534,15 @@ void main() {
         async.elapse(const Duration(milliseconds: 200));
         expect(session.debugMissed, 1);
 
-        // 咚 + 久握 → 4s 自动空竿休整（未松手不计误收）。
+        // 咚 + 久握 → 4s 自动沉掉（未松手不计误收）。
+        // 新要求 #2：沉没**不收杆**，浮漂留在水里继续等下一件。
         clock.advanceUs(5000000); // 越过休竿期
         async.elapse(const Duration(milliseconds: 200));
         session.debugForceHook(petal: false);
         clock.advanceUs(4500000);
         async.elapse(const Duration(milliseconds: 200));
-        expect(session.debugIsResting, isTrue);
         expect(session.debugMiscatch, 0);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
         scheduler.dispose();
       });
     });
@@ -566,11 +568,176 @@ void main() {
         session.debugForceHook(petal: false);
         clock.advanceUs(4100000);
         async.elapse(const Duration(milliseconds: 200));
-        expect(session.debugIsResting, isTrue);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
         expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(2));
         scheduler.dispose();
         session.dispose();
       });
+    });
+
+    test('新要求 #1：花瓣上钩即定种，稀有度概率不变、同稀有度内各花均分', () {
+      // 直接对抽样函数做统计：4000 次。
+      final session = FishPetalsSession(rng: Random(20250912));
+      final byRarity = <PetalRarity, int>{};
+      final bySpecies = <String, int>{};
+      const n = 4000;
+      for (var i = 0; i < n; i++) {
+        final species = session.rollPetalSpecies();
+        final rarity = petalRarityOfSpecies(species);
+        byRarity[rarity] = (byRarity[rarity] ?? 0) + 1;
+        bySpecies[species.id] = (bySpecies[species.id] ?? 0) + 1;
+        // 花种必须属于它自己的稀有度池。
+        expect(flowerSpeciesOfRarity(rarity).map((s) => s.id),
+            contains(species.id));
+      }
+      // 稀有度概率不变：常见 70% / 稀有 25% / 奇珍 5%。
+      expect(byRarity[PetalRarity.common]! / n, closeTo(0.70, 0.03));
+      expect(byRarity[PetalRarity.rare]! / n, closeTo(0.25, 0.03));
+      expect(byRarity[PetalRarity.legendary]! / n, closeTo(0.05, 0.02));
+
+      // 十种花都可能钓到，且同稀有度内按花数均分。
+      for (final species in kFlowerSpecies) {
+        final rarity = petalRarityOfSpecies(species);
+        final pool = flowerSpeciesOfRarity(rarity).length;
+        final expected = n * (byRarity[rarity]! / n) / pool;
+        final got = bySpecies[species.id] ?? 0;
+        expect(got, greaterThan(expected * 0.6),
+            reason: '${species.displayName} 出现 $got 次，明显少于均分的 '
+                '${expected.toStringAsFixed(1)} 次——同稀有度内没有均分');
+        expect(got, lessThan(expected * 1.45),
+            reason: '${species.displayName} 出现 $got 次，明显多于均分的 '
+                '${expected.toStringAsFixed(1)} 次');
+      }
+      // 奇珍只有莲花，抽到奇珍就必然是莲花。
+      expect(bySpecies.length, kFlowerSpecies.length);
+    });
+
+    test('新要求 #1：钓到的花瓣当场带花名入库（奖励 id/label 都是花种）', () async {
+      final (ctx, clock, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession(rng: Random(4));
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      // 连钓 12 次，每次都该是"某一种花的花瓣"（松手都在 1.5s 窗口内）。
+      final ids = <String>{};
+      for (var i = 0; i < 12; i++) {
+        session.debugForceHook(petal: true);
+        session.onInput(release(clock.nowUs() + 500000));
+      }
+      expect(session.debugPetals, 12);
+      final result = await session.finish(FinishReason.userEnded);
+      expect(result.extraRewards, hasLength(12));
+      for (final reward in result.extraRewards) {
+        final species = flowerById(reward.id);
+        expect(species.id, reward.id);
+        expect(reward.label, '花瓣（${species.displayName}）');
+        ids.add(reward.id);
+      }
+      // 12 次里不该只有一种（同稀有度内是均分，不是固定一种）。
+      expect(ids.length, greaterThan(1),
+          reason: '12 次全钓到同一种花瓣——定种没有按稀有度池均分');
+      session.dispose();
+      scheduler.dispose();
+    });
+
+    test('新要求 #2：沉没不收杆——浮漂留在原处，可以接着等下一件', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 抛竿要带落点：判定与浮漂都依赖它（无落点的事件不会下水）。
+        session.onInput(
+          const InputEvent(
+            phase: PointerPhase.down,
+            absAudioUs: 0,
+            sessionUs: 0,
+            rawTimeStamp: Duration.zero,
+            position: Offset(200, 400),
+          ),
+        );
+        final buoyAt = session.debugPond.buoy;
+        expect(session.debugPond.buoyShown, isTrue);
+
+        // 叮后超窗 → 花瓣沉没。
+        session.debugForceHook(petal: true);
+        clock.advanceUs(1600000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugMissed, 1);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
+        expect(session.debugPond.buoyShown, isTrue, reason: '浮漂必须留在水里');
+        expect(session.debugPond.buoy, buoyAt, reason: '浮漂位置不该变');
+
+        // 同一个浮漂还能继续上钩、收杆入库——不必重新抛竿。
+        session.debugForceHook(petal: true);
+        session.onInput(release(clock.nowUs() + 500000));
+        expect(session.debugPetals, 1);
+        expect(session.debugMissed, 1);
+
+        // 想收杆就抬手：等待中抬手＝收杆（浮漂离水）。
+        session.onInput(tap(clock.nowUs()));
+        session.onInput(release(clock.nowUs() + 100000));
+        expect(session.debugPond.buoyShown, isFalse);
+        expect(session.debugIsResting, isTrue);
+        expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(1));
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
+
+    test('新要求 #3：抛竿落在物件身上 → 先被击散，离开加速圈前不判上钩', () {
+      final pond = PondModel(rng: Random(11));
+      pond.resize(const Size(400, 800));
+      pond.debugClear();
+      // 落点正下方 6px：正好在加速圈以内（最坏情况）。
+      pond.debugAddItem(petal: true, pos: const Offset(206, 400));
+      final item = pond.items.single; // nearestOf 需要浮漂，此时还没抛竿
+      expect(item.spookLeft, 0);
+
+      pond.setBuoy(const Offset(200, 400), shown: true);
+      expect(item.spookLeft, greaterThan(0), reason: '落点内的物件必须先被击散');
+
+      var leftTheRingAt = -1;
+      for (var i = 0; i < 600; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        final dist = (item.pos - const Offset(200, 400)).distance;
+        expect(pond.takePendingHook(), isNull,
+            reason: '被击散的物件在滑出加速圈之前不得上钩（第 $i 帧）');
+        if (dist > PondModel.accelerateR) {
+          leftTheRingAt = i;
+          break;
+        }
+      }
+      expect(leftTheRingAt, greaterThanOrEqualTo(0),
+          reason: '击散力度不够：物件没能滑出加速圈，会被拽回来直接上钩');
+      // 滑出去之后免上钩标记就该清掉（之后正常加入漂流）。
+      pond.step(1 / 60, holdSeconds: 0);
+      expect(item.spookLeft, 0);
+      expect((item.pos - const Offset(200, 400)).distance,
+          greaterThan(PondModel.accelerateR));
+    });
+
+    test('新要求 #3：加速圈外漂进来的物件不受影响，照常上钩', () {
+      final pond = PondModel(rng: Random(12));
+      pond.resize(const Size(400, 800));
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(320, 400)); // 距落点 120
+      final item = pond.items.single;
+
+      pond.setBuoy(const Offset(200, 400), shown: true);
+      expect(item.spookLeft, 0, reason: '圈外的只是被推开，不是"优先击散"');
+      expect(item.inertia, isTrue, reason: '击散的冲量仍在（力度按距离衰减）');
+
+      // 自然漂进判定圈 → 照常上钩（不被"优先击散"挡住）。
+      var hooked = false;
+      for (var i = 0; i < 60 * 40 && !hooked; i++) {
+        pond.step(1 / 60, holdSeconds: 1);
+        hooked = pond.takePendingHook() != null;
+      }
+      expect(hooked, isTrue, reason: '圈外物件漂进来必须能上钩');
     });
 
     test('结算奖励文案带稀有度名称，插值未被转义（复审 R5）', () async {
@@ -582,12 +749,11 @@ void main() {
       session.debugForceHook(petal: true);
       session.onInput(release(0)); // 窗口内收杆
       final result = await session.finish(FinishReason.userEnded);
-      expect(result.extraRewards.single.id,
-          anyOf('common', 'rare', 'legendary'));
-      expect(
-        result.extraRewards.single.label,
-        anyOf('花瓣（常见）', '花瓣（稀有）', '花瓣（奇珍）'),
-      );
+      // 新要求 #1：上钩即定种，奖励 id 是图鉴里的花种，文案用花名。
+      final reward = result.extraRewards.single;
+      final species = flowerById(reward.id);
+      expect(species.id, reward.id, reason: '奖励 id 必须是图鉴里的花种 id');
+      expect(reward.label, '花瓣（${species.displayName}）');
       session.dispose();
       scheduler.dispose();
     });
@@ -1018,7 +1184,7 @@ void main() {
 
         expect(session.debugMissed, 1);
         expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(1));
-        expect(session.debugIsResting, isTrue);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
         scheduler.dispose();
         session.dispose();
       });

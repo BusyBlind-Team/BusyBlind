@@ -150,6 +150,19 @@ const List<FlowerSpecies> kFlowerSpecies = [
 FlowerSpecies flowerById(String id) =>
     kFlowerSpecies.firstWhere((s) => s.id == id, orElse: () => kFlowerSpecies.first);
 
+/// 某稀有度的全部花种。
+///
+/// 钓花在上钩那一刻就从这里定种：先按稀有度概率抽（常见 70% / 稀有 25% /
+/// 奇珍 5%），再在本池内**等概率**取一种，所以每种花的机会是
+/// "本稀有度概率 ÷ 本池花数"。
+List<FlowerSpecies> flowerSpeciesOfRarity(PetalRarity rarity) => kFlowerSpecies
+    .where((s) => s.rarity.rarityKey == rarity.id)
+    .toList(growable: false);
+
+/// 花瓣稀有度 → 图鉴花种的稀有度（两套枚举共用 id，转换单点收口）。
+PetalRarity petalRarityOfSpecies(FlowerSpecies species) =>
+    petalRarityById(species.rarity.rarityKey);
+
 /// 花种 id → 正式美术文件名（assets/art/flowers/<文件名>.webp）。
 /// 部分素材文件名与 camelCase 的 id 不一致（樱花=cherry、迎春=winter_jasmine，
 /// 复审 R4），此处显式映射；未列出的花种直接以 id 为文件名。
@@ -164,6 +177,3 @@ String flowerArtAsset(String id) =>
 
 /// 通用花瓣色（花瓣已不分物种，视觉统一用这个柔和粉色）。
 const Color kGenericPetalColor = Color(0xFFEFC3C4);
-
-/// 合成可用的档位（升序）。
-const List<int> kCraftTiers = [4, 5, 6, 8];

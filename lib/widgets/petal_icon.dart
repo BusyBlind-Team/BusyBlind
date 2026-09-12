@@ -139,74 +139,29 @@ class _FlowerPainter extends CustomPainter {
       oldDelegate.dim != dim;
 }
 
-/// 图鉴合成条目：档位 + 稀有度 → 可合成的花（新改进意见：
-/// 花瓣带稀有度，投入对应稀有度的瓣数合成对应稀有度的花）。
-class CraftRow extends StatelessWidget {
-  const CraftRow({
+/// 图鉴条目：一朵花 + 该花种已有的花瓣数（够了就能合成）。
+///
+/// 新要求 #1：花瓣上钩那一刻就定了花种，所以图鉴按**花种**分行——
+/// 攒够这朵花所需的瓣数（4/5/6/8）即可合成，不再按稀有度混着抽。
+class FlowerRow extends StatelessWidget {
+  const FlowerRow({
     super.key,
-    required this.tierPetalCount,
-    required this.rarity,
+    required this.species,
+    required this.owned,
     required this.petalCount,
     required this.onCraft,
   });
 
-  final int tierPetalCount;
-  final PetalRarity rarity;
+  final FlowerSpecies species;
+  final bool owned;
+
+  /// 该花种已有的花瓣数。
   final int petalCount;
   final VoidCallback onCraft;
 
   @override
   Widget build(BuildContext context) {
-    final pool = kFlowerSpecies
-        .where((s) => s.petals == tierPetalCount && s.rarity.rarityKey == rarity.id)
-        .toList(growable: false);
-    final names = pool.map((s) => s.displayName).join(' / ');
-    final canCraft = petalCount >= tierPetalCount;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0x14FFFFFF),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          for (var i = 0; i < pool.length; i++) ...[
-            if (i > 0) const SizedBox(width: 2),
-            FlowerIcon(species: pool[i], size: 22),
-          ],
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '$tierPetalCount 瓣合成一朵：$names',
-              style: const TextStyle(color: AppTheme.ink, fontSize: 13),
-            ),
-          ),
-          TextButton(
-            onPressed: canCraft ? onCraft : null,
-            child: Text(
-              '投入 $tierPetalCount 瓣',
-              style: TextStyle(
-                color: canCraft ? AppTheme.gold : AppTheme.inkFaint,
-                fontSize: 13,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// 图鉴收藏条目：一朵花 + 档位/稀有度 + 是否已收入。
-class FlowerRow extends StatelessWidget {
-  const FlowerRow({super.key, required this.species, required this.owned});
-
-  final FlowerSpecies species;
-  final bool owned;
-
-  @override
-  Widget build(BuildContext context) {
+    final canCraft = petalCount >= species.petals;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -220,20 +175,27 @@ class FlowerRow extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              '${species.displayName} · ${species.petals} 瓣 · ${species.rarityLabel}',
+              '${species.displayName} · ${species.petals} 瓣 · '
+              '${species.rarityLabel}${owned ? ' · 已收入' : ''}',
               style: TextStyle(
                 color: owned ? AppTheme.ink : AppTheme.inkFaint,
                 fontSize: 14,
               ),
             ),
           ),
-          Text(
-            owned ? '已收入' : '未遇',
-            style: TextStyle(
-              color: owned ? AppTheme.gold : AppTheme.inkFaint,
-              fontSize: 12,
+          if (canCraft)
+            TextButton(
+              onPressed: onCraft,
+              child: Text(
+                '投入 ${species.petals} 瓣',
+                style: const TextStyle(color: AppTheme.gold, fontSize: 13),
+              ),
+            )
+          else
+            Text(
+              '花瓣 $petalCount/${species.petals}',
+              style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
             ),
-          ),
         ],
       ),
     );
