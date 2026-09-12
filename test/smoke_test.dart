@@ -15,6 +15,7 @@ import 'package:busy_blind/practices/wooden_fish.dart';
 import 'package:busy_blind/practices/cross_river.dart';
 import 'package:busy_blind/practices/count_rain.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -108,7 +109,10 @@ void main() {
   testWidgets('空木鱼经系统返回会记录中断，但不解锁精准类成就', (tester) async {
     final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+      harness(
+        home: PracticeHostPage(factory: WoodenFishSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('开始'));
@@ -156,7 +160,10 @@ void main() {
       ..markTutorialSeen('wooden_fish')
       ..setBgmSettings(track: -2); // 无背景音乐
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+      harness(
+        home: PracticeHostPage(factory: WoodenFishSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -169,17 +176,23 @@ void main() {
   });
 
   for (final reduced in [false, true]) {
-    testWidgets('钓花宿主：浮漂固定在抛竿落点，拖动不移杆（减少动态效果=$reduced，Bug 描述 #5）', (tester) async {
+    testWidgets('钓花宿主：浮漂固定在抛竿落点，拖动不移杆（减少动态效果=$reduced，Bug 描述 #5）', (
+      tester,
+    ) async {
       final store = AppStore.inMemory()
         ..markTutorialSeen('fish_petals')
         ..setBgmSettings(track: -2);
-      await tester.pumpWidget(harness(
-        store: store,
-        home: Builder(builder: (context) => MediaQuery(
-          data: MediaQuery.of(context).copyWith(disableAnimations: reduced),
-          child: PracticeHostPage(factory: FishPetalsSession.new),
-        )),
-      ));
+      await tester.pumpWidget(
+        harness(
+          store: store,
+          home: Builder(
+            builder: (context) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: reduced),
+              child: PracticeHostPage(factory: FishPetalsSession.new),
+            ),
+          ),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('开始'));
       await tester.pump();
@@ -206,7 +219,10 @@ void main() {
       ..markTutorialSeen('tide_breath')
       ..setBgmSettings(track: 2); // 全局选了"风铃"
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
+      harness(
+        home: PracticeHostPage(factory: TideBreathSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -222,7 +238,10 @@ void main() {
   testWidgets('§13：木鱼开始界面提供 BGM 选择，默认随机', (tester) async {
     final store = AppStore.inMemory()..markTutorialSeen('wooden_fish');
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: WoodenFishSession.new), store: store),
+      harness(
+        home: PracticeHostPage(factory: WoodenFishSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.text('背景音乐：随机背景音乐'), findsOneWidget);
@@ -231,7 +250,10 @@ void main() {
   testWidgets('§13：过河不提供 BGM 选择（只播河流，§14.1）', (tester) async {
     final store = AppStore.inMemory()..markTutorialSeen('cross_river');
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: CrossRiverSession.new), store: store),
+      harness(
+        home: PracticeHostPage(factory: CrossRiverSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('背景音乐：'), findsNothing);
@@ -261,8 +283,11 @@ void main() {
 
     await tester.tap(find.text('开始'));
     await tester.pump(const Duration(milliseconds: 16));
-    expect(sounds.loopsStarted, isNot(contains('bgm_fengling')),
-        reason: '改选"不要"之后不应还播进入页面时的那首');
+    expect(
+      sounds.loopsStarted,
+      isNot(contains('bgm_fengling')),
+      reason: '改选"不要"之后不应还播进入页面时的那首',
+    );
     expect(sounds.loopsStarted, contains('forest_loop'));
   });
 
@@ -280,8 +305,11 @@ void main() {
     await tester.tap(find.text('开始'));
     await tester.pump(const Duration(milliseconds: 16));
     expect(sounds.loopsStarted, contains('amb_river'));
-    expect(sounds.loopsStarted.any((k) => k.startsWith('bgm_')), isFalse,
-        reason: '§14.1：过河不播五首 BGM');
+    expect(
+      sounds.loopsStarted.any((k) => k.startsWith('bgm_')),
+      isFalse,
+      reason: '§14.1：过河不播五首 BGM',
+    );
 
     // 结算后立刻返回：渐出定时器会被取消，必须由销毁兜底停止音轨。
     await tester.pumpWidget(const SizedBox());
@@ -293,7 +321,10 @@ void main() {
   testWidgets('§6：听潮开始界面点击呼吸法展开节奏与难度', (tester) async {
     final store = AppStore.inMemory()..markTutorialSeen('tide_breath');
     await tester.pumpWidget(
-      harness(home: PracticeHostPage(factory: TideBreathSession.new), store: store),
+      harness(
+        home: PracticeHostPage(factory: TideBreathSession.new),
+        store: store,
+      ),
     );
     await tester.pumpAndSettle();
     // 默认选中 4-6：展示它的节奏与难度。
@@ -355,6 +386,36 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('修行页顶部文字不得继承 WidgetsApp 错误样式的黄色下划线（Bug#8）', (tester) async {
+    // 根因：WidgetsApp 会用内部 _errorTextStyle（红色等宽 + 纯黄双下划线）
+    // 作为环境 DefaultTextStyle 包住整个 app，位置在 Theme 之上。没有
+    // Material/Scaffold 祖先的裸 Text（修行覆盖层里的「退出」「♪ 曲名」）
+    // 会继承它，而它们传的 TextStyle 没写 decoration，下划线就漏出来。
+    final store = AppStore.inMemory()
+      ..markTutorialSeen('count_rain')
+      ..setBgmSettings(track: 2);
+    await tester.pumpWidget(
+      harness(
+        home: PracticeHostPage(factory: CountRainSession.new),
+        store: store,
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('开始'));
+    await tester.pump(const Duration(milliseconds: 16));
+
+    for (final label in ['退出']) {
+      final finder = find.text(label);
+      expect(finder, findsOneWidget);
+      final style = tester.renderObject<RenderParagraph>(finder).text.style;
+      expect(
+        style?.decoration,
+        anyOf(isNull, TextDecoration.none),
+        reason: '「$label」继承了 WidgetsApp 的黄色双下划线',
+      );
+      expect(style?.decorationColor, isNot(const Color(0xFFFFFF00)));
+    }
+  });
 
   testWidgets('成就页：普通成就用小字注明达成条件，隐藏成就不剧透', (tester) async {
     // 用超高视口让 ListView 一次把整页都构建出来，免去滚动带来的
@@ -364,7 +425,9 @@ void main() {
     addTearDown(tester.view.reset);
 
     final store = AppStore.inMemory();
-    await tester.pumpWidget(harness(home: const AchievementsPage(), store: store));
+    await tester.pumpWidget(
+      harness(home: const AchievementsPage(), store: store),
+    );
     await tester.pumpAndSettle();
 
     // 普通成就：风味文案下方用小字注明达成条件。
