@@ -59,10 +59,15 @@ void main() {
     // + 5 环境音(m4a) + 3 呼吸指引(m4a)。
     expect(SoundCatalog.catalog, hasLength(16 + 12 + 5 + 5 + 3));
     // 长音轨（BGM/环境音/指引）与过河编号音一律 AAC(m4a)；短音效保持 mp3。
+    // 例外：rain_drop_3 做过 +1.5× 增益，重编码为 AAC——macOS 没有 mp3
+    // 编码器，而参数层音量上限 1.0 做不到 150%。
+    const aacSfx = {'rain_drop_3'};
     expect(
       SoundCatalog.catalog.entries.every(
         (e) =>
-            (SoundCatalog.isStreamedKey(e.key) || e.key.startsWith('river_'))
+            (SoundCatalog.isStreamedKey(e.key) ||
+                    e.key.startsWith('river_') ||
+                    aacSfx.contains(e.key))
                 ? e.value.endsWith('.m4a')
                 : e.value.endsWith('.mp3'),
       ),

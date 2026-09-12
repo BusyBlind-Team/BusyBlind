@@ -95,7 +95,9 @@ abstract final class SoundCatalog {
     'fish_dong': 'sfx/fish_dong.mp3',
     'rain_drop_1': 'sfx/rain_drop_1.mp3',
     'rain_drop_2': 'sfx/rain_drop_2.mp3',
-    'rain_drop_3': 'sfx/rain_drop_3.mp3',
+    // 雨滴 3 为 +1.5×（+3.52 dB）增益后的 AAC：macOS 无 mp3 编码器，
+    // 且参数层音量上限为 1.0，靠传参做不到 150%。
+    'rain_drop_3': 'sfx/rain_drop_3.m4a',
     'fish_sink': 'sfx/fish_sink.mp3',
     'bell_low': 'sfx/bell_low.mp3',
     'wind_chime': 'sfx/wind_chime.mp3',

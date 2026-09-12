@@ -268,6 +268,31 @@ void main() {
       }
     });
 
+    test('水之呼吸：解放双手模式下不可达成（第二轮）', () {
+      // 解放双手时相位吻合恒为真、avgSync 必是满值，若只看同步率会白拿。
+      AppStore run({required bool handsFree, required double sync}) {
+        final store = AppStore.inMemory();
+        store.addSession(
+          practiceId: 'tide_breath',
+          merit: 0,
+          completed: true,
+          durationMs: 300000,
+          metrics: {
+            'phaseCount': 10,
+            'avgSync': sync,
+            'handsFree': handsFree,
+          },
+        );
+        evaluateAchievements(store);
+        return store;
+      }
+
+      expect(run(handsFree: true, sync: 1.0).isUnlocked('tide_sync90'), isFalse,
+          reason: '解放双手模式不应解锁「水之呼吸」');
+      expect(run(handsFree: false, sync: 0.95).isUnlocked('tide_sync90'), isTrue,
+          reason: '普通模式下同步率 >90% 应正常解锁');
+    });
+
     test('成就解锁幂等', () {
       final store = AppStore.inMemory();
       expect(store.unlockAchievements(['a', 'b']), ['a', 'b']);
