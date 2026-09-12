@@ -321,16 +321,9 @@ class _ScenePainter extends CustomPainter {
         Paint()..color = jade.withValues(alpha: 0.16 + layer * 0.06),
       );
     }
-    final c = Offset(s.width / 2, s.height * 0.46);
-    final radius = s.width * (active ? 0.19 : 0.15) * (0.96 + motion * 0.08);
-    canvas.drawCircle(
-      c,
-      radius,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5
-        ..color = (active ? gold : jade).withValues(alpha: 0.7),
-    );
+    // Bug#9/10（第二轮，§10.4 更正）：这里原本按 active（按压状态）在
+    // 0.15↔0.19 之间跳变的金色圆环已删除——听潮只保留会话层那个随呼吸
+    // 时间轴匀速平滑放大/缩小的圆圈（_BreathCircleOverlay）。
   }
 
   void _paintFishing(Canvas canvas, Size s) {

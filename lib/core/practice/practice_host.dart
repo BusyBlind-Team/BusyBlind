@@ -806,23 +806,43 @@ class _StartOverlayState extends State<_StartOverlay> {
     final art = practiceArtFor(widget.session.manifest.iconKey);
 
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // 修行插画横幅（Bug 描述 #2）：从介绍详情移到准备开始界面。
+            // Bug#1（第二轮）：原先是 height:132 + BoxFit.cover，把 600×600
+            // 的方图压成横条、上下裁掉大半（过河连僧人头部都看不见）。
+            // 改为 1:1 容器撑满可用宽度：源图本身就是 1:1，cover 不会裁到主体。
             if (art != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.asset(
-                  art,
-                  width: double.infinity,
-                  height: 132,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const SizedBox(height: 0),
-                ),
+              // Bug#1（第二轮）：原先是 height:132 + BoxFit.cover，把 600×600
+              // 的方图压成横条、上下裁掉大半（过河连僧人头部都看不见）。
+              // 现在固定 1:1 完整显示，不上下裁切。
+              //
+              // 但屏幕高度有限：无脑"宽度撑满"会让整页溢出（实测溢 430px），
+              // 所以边长取「可用宽度」与「屏高 42%」的较小值——高屏上就是
+              // 撑满宽度，矮屏上自动退让，始终维持 1:1 且不裁主体。
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxSide = MediaQuery.sizeOf(context).height * 0.42;
+                  final side = constraints.maxWidth < maxSide
+                      ? constraints.maxWidth
+                      : maxSide;
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: side,
+                      height: side,
+                      child: Image.asset(
+                        art,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox(height: 0),
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 18),
             ],

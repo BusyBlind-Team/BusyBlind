@@ -738,8 +738,8 @@ void main() {
 
         session.onInput(tapAt(buoy));
         final item = pond.nearestOf(true)!;
-        final before = (item.pos - buoy).distance;
-        expect(before, greaterThan(PondModel.hookRadius));
+        final before = item.pos;
+        expect((before - buoy).distance, greaterThan(PondModel.catchR));
 
         // 只推进会话时钟与 100ms 轮询：界面动画完全不参与
         //（关闭动画后 layer 的 ticker 是停的）。旧实现里模拟只由绘制帧
@@ -748,12 +748,66 @@ void main() {
           clock.advanceUs(100000);
           async.elapse(const Duration(milliseconds: 100));
         }
-        final after = (item.pos - buoy).distance;
-        expect(after, lessThan(before - 5),
-            reason: '会话时间应推进池塘模拟：$before → $after');
+        // Bug#5 把移动改成速度模型后，"必然持续靠近"不再成立——静止后
+        // 重新起步的方向是概率性的（朝浮漂的偏向随时间上升）。这里守的是
+        // 本条 P1 的本意：模拟必须真的在推进。
+        expect((item.pos - before).distance, greaterThan(5),
+            reason: '会话时间应推进池塘模拟（物件必须真的移动过）');
         scheduler.dispose();
         session.dispose();
       });
+    });
+
+    test('Bug#5 双判定圈：进加速圈改向浮漂，进判定圈产出待上钩', () {
+      final pond = PondModel();
+      pond.resize(const Size(400, 600));
+      const buoy = Offset(200, 300);
+      pond.setBuoy(buoy, shown: true);
+      pond.debugClear();
+      // 放在加速圈内、判定圈外，初始速度朝外。
+      pond.debugAddItem(petal: true, pos: const Offset(200, 360));
+      final item = pond.nearestOf(true)!;
+      item.vel = const Offset(0, 100);
+
+      pond.step(1 / 60, holdSeconds: 0);
+      final radial = item.pos - buoy;
+      expect(radial.dx * item.vel.dx + radial.dy * item.vel.dy, lessThan(0),
+          reason: '情况四：进入加速圈后方向应立即修正为面向浮漂');
+
+      PondItem? hooked;
+      for (var i = 0; i < 600 && hooked == null; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        hooked = pond.takePendingHook();
+      }
+      expect(hooked, isNotNull, reason: '持续朝浮漂移动应最终进入判定圈');
+      expect(identical(hooked, item), isTrue);
+      expect(item.vel, Offset.zero, reason: '进判定圈速度立即清零');
+    });
+
+    test('Bug#5 每个花瓣/杂物都是独立对象：不共用速度或方向变量', () {
+      final pond = PondModel();
+      pond.resize(const Size(400, 600));
+      pond.setBuoy(const Offset(200, 300), shown: true);
+      pond.debugClear();
+      for (var i = 0; i < 4; i++) {
+        pond.debugAddItem(petal: i.isEven, pos: Offset(60.0 + i * 30, 520));
+      }
+      // 每个物件必须自带随机源，否则游走会共用同一串随机数。
+      final rngs = pond.items.map((e) => e.rng).toSet();
+      expect(rngs.length, pond.items.length, reason: '每个物件应各有独立随机源');
+
+      for (var i = 0; i < 180; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+      }
+      final moving = pond.items.where((e) => e.vel.distance > 0.01).toList();
+      for (var i = 0; i < moving.length; i++) {
+        for (var j = i + 1; j < moving.length; j++) {
+          final a = moving[i].vel, b = moving[j].vel;
+          final cos = (a.dx * b.dx + a.dy * b.dy) / (a.distance * b.distance);
+          expect(cos, lessThan(0.999),
+              reason: '两个物件的运动方向不应完全一致（共用变量会同步运动）');
+        }
+      }
     });
 
     testWidgets('连续两次抛竿都击散起涟漪（P2：收竿要复位落水沿标记）', (tester) async {

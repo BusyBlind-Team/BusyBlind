@@ -25,6 +25,10 @@ class CrossRiverSession extends PracticeSession {
   static const int _maxTUs = 2000000;
   static const int _guideLeadUs = 500000; // 引导音之前留白
   static const int _missGuardUs = 6000000; // 引导结束仍不起手 → 失败
+
+  /// Bug#6（第二轮）：玩家复现结束后停 2 秒，再播下一段引导音。
+  /// 首轮（还没复现过）仍用 [_guideLeadUs] 的短留白。
+  static const int _reproduceGapUs = 2000000;
   static const int _latencyGraceUs = 250000; // 音频播放延迟补偿（Bug 描述 #8）
 
   /// 6 轮一循环的编号音序列：(引导a, 引导b, 跟随c, 跟随d)。
@@ -106,7 +110,7 @@ class CrossRiverSession extends PracticeSession {
     _nextJump();
   }
 
-  void _nextJump() {
+  void _nextJump({bool afterReproduce = false}) {
     _jumpNo++;
     _jumpId++;
     // 每 5 次踏稳：T 范围扩大。踩滑仍能继续，但不应让下一轮更难。
@@ -121,7 +125,9 @@ class CrossRiverSession extends PracticeSession {
     _tUs = _loUs + _rng.nextInt(_hiUs - _loUs);
 
     final (guideA, guideB, _, _) = _roundSounds;
-    final t0 = _ctx.scheduler.nowUs() + _guideLeadUs;
+    // Bug#6：复现完成后先静默 2 秒，把节奏拉开；引导音自身的间隔不变。
+    final lead = afterReproduce ? _reproduceGapUs : _guideLeadUs;
+    final t0 = _ctx.scheduler.nowUs() + lead;
     _ctx.scheduler.scheduleSound(t0, SoundCatalog.riverSoundKey(guideA), gain: 0.9);
     _ctx.scheduler.scheduleSound(
       t0 + _tUs,
@@ -169,7 +175,7 @@ class CrossRiverSession extends PracticeSession {
 
   void _onStepped({required bool slip}) {
     if (!slip) _difficultySteps++;
-    _nextJump();
+    _nextJump(afterReproduce: true);
   }
 
   void _fail() {

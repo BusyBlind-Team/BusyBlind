@@ -8,38 +8,72 @@ import '../../theme.dart';
 /// 声音语义表的数据（首次教程第 ② 页与「我 → 声音指引」共用一份）。
 ///
 /// final 而非 const：riverSoundKey 是方法调用，不能进编译期常量。
-final List<({String sound, String meaning, List<String> keys, int gapMs})>
+final List<
+  ({
+    String sound,
+    String meaning,
+    List<String> keys,
+    int gapMs,
+    int? previewSeconds,
+  })
+>
 kSoundGuideRows = [
   (
     sound: '轻快的筝',
     meaning: '开始 / 请闭眼',
     keys: [SoundCatalog.chimeKey],
     gapMs: 900,
+    previewSeconds: null,
   ),
   (
     sound: '沉重的筝',
     meaning: '结束 / 可以睁眼',
     keys: [SoundCatalog.chimeDoubleKey],
     gapMs: 900,
+    previewSeconds: null,
   ),
-  // 过河的引导音就是"筝"。示例：播 1 → 间隔 1 秒 → 播 2。
+  // Bug#4（第二轮）：原"筝 / 过河：复现这个间隔"改为"筝的音阶 /
+  // 复现音符间的间隔"。示例仍是播 1 → 间隔 1 秒 → 播 2。
   (
-    sound: '筝',
-    meaning: '过河：复现这个间隔',
+    sound: '筝的音阶',
+    meaning: '复现音符间的间隔',
     keys: [SoundCatalog.riverSoundKey(1), SoundCatalog.riverSoundKey(2)],
     gapMs: 1000,
+    previewSeconds: null,
   ),
   (
     sound: '花瓣/杂物上钩的声音',
     meaning: '花瓣/杂物上钩了',
     keys: [SoundCatalog.fishDingKey, SoundCatalog.fishDongKey],
     gapMs: 900,
+    previewSeconds: null,
   ),
   (
     sound: '木鱼声',
     meaning: '一秒一声的节拍',
     keys: [SoundCatalog.muyuKey],
     gapMs: 900,
+    previewSeconds: null,
+  ),
+  // Bug#4 新增：三种雨滴依次试听。
+  (
+    sound: '雨滴',
+    meaning: '屋檐落下的雨滴',
+    keys: [
+      'rain_drop_1',
+      'rain_drop_2',
+      'rain_drop_3',
+    ],
+    gapMs: 900,
+    previewSeconds: null,
+  ),
+  // Bug#4 新增：弦音＝4-7-8 呼吸指引音频，试听只放前 4 秒。
+  (
+    sound: '弦音',
+    meaning: '跟随音乐的变化调整呼吸',
+    keys: [SoundCatalog.guideBreath478Key],
+    gapMs: 900,
+    previewSeconds: 4,
   ),
 ];
 
@@ -47,8 +81,25 @@ kSoundGuideRows = [
 class SoundGuideList extends ConsumerWidget {
   const SoundGuideList({super.key});
 
-  Future<void> _playDemo(WidgetRef ref, List<String> keys, int gapMs) async {
+  /// 试听一条。
+  ///
+  /// [previewSeconds] 非空时该条目是长音轨（如呼吸指引），只截取前若干秒：
+  /// 用流式循环播放起播，到点停掉——短音效池播不了"前 4 秒"这种片段。
+  Future<void> _playDemo(
+    WidgetRef ref,
+    List<String> keys,
+    int gapMs, {
+    int? previewSeconds,
+  }) async {
     final sounds = ref.read(soundBankProvider);
+    if (previewSeconds != null) {
+      for (final key in keys) {
+        await sounds.startLoop(key, gain: 0.8);
+        await Future<void>.delayed(Duration(seconds: previewSeconds));
+        await sounds.stopLoop(key);
+      }
+      return;
+    }
     for (final key in keys) {
       await sounds.play(key);
       await Future<void>.delayed(Duration(milliseconds: gapMs));
@@ -94,7 +145,12 @@ class SoundGuideList extends ConsumerWidget {
                 ),
                 IconButton(
                   tooltip: '试听',
-                  onPressed: () => _playDemo(ref, row.keys, row.gapMs),
+                  onPressed: () => _playDemo(
+                    ref,
+                    row.keys,
+                    row.gapMs,
+                    previewSeconds: row.previewSeconds,
+                  ),
                   icon: const Icon(
                     Icons.volume_up_outlined,
                     color: AppTheme.goldDim,

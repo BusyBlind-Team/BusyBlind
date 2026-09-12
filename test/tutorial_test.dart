@@ -40,7 +40,7 @@ void main() {
     expect(find.text('声音的语言'), findsOneWidget);
     expect(find.text('轻快的筝'), findsOneWidget);
     expect(find.text('沉重的筝'), findsOneWidget);
-    expect(find.text('筝'), findsOneWidget);
+    expect(find.text('筝的音阶'), findsOneWidget);
     expect(find.text('花瓣/杂物上钩的声音'), findsOneWidget);
     expect(find.textContaining('花瓣/杂物上钩了'), findsOneWidget);
     expect(find.text('木鱼声'), findsOneWidget);
