@@ -15,8 +15,7 @@ import '../widgets/practice_scene.dart';
 ///
 /// - 108 下，目标间隔 1000ms（佛家百八之数）。
 /// - 无外部节拍音——节拍必须来自用户内心。
-/// - 过程音效只有敲击声本身（Bug 描述 #7：里程碑磬等一切额外音效已删；
-///   偏差累积超阈值时木鱼音色变闷，仍是敲击声）。
+/// - 不管节奏快慢，每次敲击都播放同一份正式木鱼声。
 /// - 结算：心急/走神判定 + 间隔曲线 + 稳定性标准差。
 /// - 修为（待对齐清单 #5）：完成一次 = 15 − 偏移时长（秒），四舍五入，
 ///   下限 0；偏移 = 总用时与 108 秒的差值的绝对值。未完成不发修为。
@@ -81,13 +80,13 @@ class WoodenFishSession extends PracticeSession {
     _lastStrikeUs = now;
     _strikes++;
 
-    // 音色反馈：偏差累积超阈值 → 音色微微变闷；回到阈值内 → 恢复。
+    // 视觉反馈：偏差累积超阈值时画面变暗，声音始终使用正式木鱼声。
     if (!_muffled && _cumDeviationUs.abs() > _muffleThresholdUs) {
       _muffled = true;
     } else if (_muffled && _cumDeviationUs.abs() < _unmuffleThresholdUs) {
       _muffled = false;
     }
-    _ctx.sounds.play(_muffled ? 'muyu_muffled' : SoundCatalog.muyuKey);
+    _ctx.sounds.play(SoundCatalog.muyuKey);
     notifyVisualChanged();
 
     if (_strikes >= _totalStrikes) {

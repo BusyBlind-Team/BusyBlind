@@ -124,7 +124,7 @@ void main() {
   });
 
   group('木鱼', () {
-    test('108 声整间隔 → 偏移 0，修为 15，里程碑磬两次', () async {
+    test('108 声整间隔 → 偏移 0，修为 15，仅播放木鱼声', () async {
       FinishReason? reason;
       final (ctx, _, sounds, _) = makeContext((r) => reason = r);
       final session = WoodenFishSession();
@@ -145,6 +145,28 @@ void main() {
       expect(sounds.played.where((k) => k == 'chime_soft'), isEmpty);
       expect(sounds.played.where((k) => k == 'muyu').length, 108);
     });
+
+    for (final intervalUs in [200000, 2500000]) {
+      test('间隔 ${intervalUs / 1000000} 秒敲满 108 下，始终播放正式木鱼声', () async {
+        FinishReason? reason;
+        final (ctx, _, sounds, scheduler) = makeContext((r) => reason = r);
+        final session = WoodenFishSession();
+        await session.prepare(ctx);
+        session.start();
+
+        for (var i = 0; i < 108; i++) {
+          session.onInput(tap(i * intervalUs));
+        }
+
+        expect(reason, FinishReason.completed);
+        expect(sounds.played, List.filled(108, SoundCatalog.muyuKey));
+        final result = await session.finish(reason!);
+        expect(result.metrics['strikes'], 108);
+        expect(result.merit, 0, reason: '音色统一不改变快慢节奏的评分');
+        session.dispose();
+        scheduler.dispose();
+      });
+    }
 
     test('整体偏慢 5.35 秒 → 修为 = round(15 − 5.35) = 10', () async {
       FinishReason? reason;
