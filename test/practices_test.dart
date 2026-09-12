@@ -764,15 +764,29 @@ void main() {
       const buoy = Offset(200, 300);
       pond.setBuoy(buoy, shown: true);
       pond.debugClear();
-      // 放在加速圈内、判定圈外，初始速度朝外。
-      pond.debugAddItem(petal: true, pos: const Offset(200, 360));
+      // 放在加速圈内、判定圈外，初始速度**切向**（向下）——这样它会留在
+      // 圈内足够久，能观察到转向；若朝外跑，1 秒就出圈了，转向自然停止。
+      pond.debugAddItem(petal: true, pos: const Offset(260, 300));
       final item = pond.nearestOf(true)!;
+      // 模型现在由 dir/speed 驱动 vel，外部给速度要走冲量通道。
       item.vel = const Offset(0, 100);
+      item.speed = 100;
+      item.dir = const Offset(0, 1);
+      item.inertia = true;
 
-      pond.step(1 / 60, holdSeconds: 0);
-      final radial = item.pos - buoy;
-      expect(radial.dx * item.vel.dx + radial.dy * item.vel.dy, lessThan(0),
-          reason: '情况四：进入加速圈后方向应立即修正为面向浮漂');
+      // 情况四：进入加速圈后转向浮漂。转向是**限速**的（6 rad/s），
+      // 不是一帧对齐——瞬间改向会造成约 20px/s 的单帧速度突变。
+      expect(item.dir.dy, greaterThan(0), reason: '初始切向朝下');
+      for (var i = 0; i < 30; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+      }
+      expect((item.pos - buoy).distance, lessThan(PondModel.accelerateR),
+          reason: '本用例要求物件仍在加速圈内');
+      final toBuoy = buoy - item.pos;
+      final toward =
+          (item.dir.dx * toBuoy.dx + item.dir.dy * toBuoy.dy) / toBuoy.distance;
+      expect(toward, greaterThan(0.5),
+          reason: '加速圈内方向应转向浮漂（实测 cos=$toward）');
 
       PondItem? hooked;
       for (var i = 0; i < 600 && hooked == null; i++) {
@@ -782,6 +796,34 @@ void main() {
       expect(hooked, isNotNull, reason: '持续朝浮漂移动应最终进入判定圈');
       expect(identical(hooked, item), isTrue);
       expect(item.vel, Offset.zero, reason: '进判定圈速度立即清零');
+    });
+
+    test('Bug#5 运动速率必须连续：不得出现单帧速度突变（卡顿回归）', () {
+      // 早期实现是在速率跌破阈值时**直接赋值**成新的随机速度，实测单帧
+      // |Δv| 高达 60px/s，看起来就是"一跳一跳"。现在改成
+      // 起步→巡航→刹车→静止→换向 的分段模型，速率全程走斜坡，
+      // 方向只在速率为 0 时更换。
+      final pond = PondModel(rng: Random(7));
+      pond.resize(const Size(400, 800));
+      // 浮漂放得足够远：本用例只观察游走本身，不引入上钩/加速圈。
+      pond.setBuoy(const Offset(200, 380), shown: true);
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(200, 780));
+
+      Offset? prev;
+      var maxJump = 0.0;
+      for (var f = 0; f < 300; f++) {
+        pond.step(1 / 60, holdSeconds: 5);
+        final v = pond.items.first.vel;
+        if (prev != null) {
+          final dv = (v - prev).distance;
+          if (dv > maxJump) maxJump = dv;
+        }
+        prev = v;
+      }
+      expect(maxJump, lessThan(5.0),
+          reason: '单帧速度突变 ${maxJump.toStringAsFixed(1)}px/s——'
+              '游走速率必须连续（斜坡），突变会看成卡顿');
     });
 
     test('Bug#5 每个花瓣/杂物都是独立对象：不共用速度或方向变量', () {

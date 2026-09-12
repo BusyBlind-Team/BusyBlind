@@ -470,8 +470,6 @@ class PondItem {
       // 每个物体**自带一个独立随机源**，游走的方向与速度全部由它自己抽。
       // 绝不用模型级的共享变量，否则多个物体会整齐划一地同步漂移。
       rng = Random(rng.nextInt(1 << 31)),
-      // 兜底初值：构造时也各抽各的。
-      wanderSpeed = 0,
       // 碰撞半径与质量（§5.4）：杂物更大更"重"。
       radius = isPetal ? 12.0 : 24.0,
       mass = isPetal ? 1.0 : 1.9;
@@ -484,8 +482,21 @@ class PondItem {
   /// 该物体自己的随机源（游走方向/速度）。
   final Random rng;
 
-  /// 静止后重新起步的速度大小（每次抽取）。
-  double wanderSpeed;
+  /// 当前速率（标量）与行进方向——速率**连续变化**，方向只在速率为 0
+  /// 时更换，避免单帧速度突变造成"一跳一跳"的卡顿。
+  double speed = 0;
+  Offset dir = const Offset(1, 0);
+
+  /// 游走分段：0 起步加速 / 1 巡航 / 2 刹车 / 3 静止歇一下。
+  /// 初值是"静止且计时已到"，第一帧就会开出一段新游走——否则初版
+  /// cruiseSpeed=0 会让第一段巡航空转好几秒，物件杵在原地不动。
+  int legPhase = 3;
+  double legLeft = 0;
+  double cruiseSpeed = 0;
+
+  /// 是否还在惯性滑行（吃过击散/碰撞冲量，速率高于游走量级）。
+  /// 为真时只吃阻力，等衰减回游走量级再交回分段循环。
+  bool inertia = false;
 
   /// 碰撞半径 / 质量（§5.3 情况六）。
   final double radius;
@@ -540,13 +551,20 @@ class PondModel {
   /// §5.3 情况一：抛竿击散的作用半径（力度按距离衰减，沿用原参数）。
   static const double _scatterRadius = 170;
 
-  /// §5.3 情况二：阻力系数与"视为静止"的速度阈值。
+  /// §5.3 情况二：惯性滑行的阻力系数。
   static const double _drag = 1.8;
-  static const double _stopSpeed = 8;
 
-  /// §5.3 情况三：静止后重新起步的速度区间。
-  static const double _wanderMin = 26;
-  static const double _wanderMax = 58;
+  /// §5.3 情况三：游走速率区间与各段时长。
+  /// 起步/刹车都用线性斜坡，单帧速度变化 = 速率/斜坡时长/60 ≈ 1 px/s，
+  /// 远低于肉眼可辨的阈值。
+  static const double _wanderMin = 18;
+  static const double _wanderMax = 40;
+  static const double _legAccelSec = 0.8;
+  static const double _legBrakeSec = 1.0;
+
+  /// 加速圈内的最大转向角速度（弧度/秒）。6 rad/s 约 0.5 秒转 180°，
+  /// 单帧速度变化 = 速率 × 6 × dt ≈ 4px/s，看不出折角。
+  static const double _turnRate = 6.0;
 
   /// §5.3 情况三：朝浮漂的初始概率，以及涨到上限所需时间。
   static const double _biasMin = 0.18;
@@ -676,6 +694,7 @@ class PondModel {
   void hookItem(PondItem item) {
     _hooked = item..hooked = true;
     item.vel = Offset.zero;
+    item.speed = 0;
     final c = _buoy;
     if (c == null) return;
     for (final other in items) {
@@ -686,6 +705,7 @@ class PondModel {
       final near = dist <= accelerateR;
       final away = near ? _wanderMax * 2.4 : _wanderMax * 0.9;
       other.vel = dir * away;
+      _applyImpulse(other);
     }
   }
 
@@ -737,6 +757,7 @@ class PondModel {
       if (dist < 0.01 || dist > _scatterRadius) continue;
       final falloff = 1 - dist / _scatterRadius;
       item.vel += d / dist * 120 * falloff;
+      _applyImpulse(item); // 击散是瞬时冲量，之后进入惯性滑行
     }
   }
 
@@ -817,28 +838,24 @@ class PondModel {
         continue;
       }
 
-      final speed = item.vel.distance;
-      if (speed <= _stopSpeed) {
-        // 情况二/三：惯性滑行到停（速度归零）后，重新获得一个**独立**的
-        // 小速度继续游走；停靠期间不漂。
-        item.vel = (buoyShown && center != null)
-            ? _restartVelocity(item, center, bias)
-            : Offset.zero;
-      } else {
-        // 情况二：阻力让速度逐渐衰减，直到停下。
-        item.vel *= exp(-_drag * dt);
-      }
+      // 情况二/三：惯性滑行与游走分段（速率全程连续，见 _updateWander）。
+      _updateWander(item, dt, center, buoyShown, bias);
 
       if (buoyShown && center != null) {
         final toBuoy = center - item.pos;
         final dist = toBuoy.distance;
         if (dist > 0.01) {
           // 情况四：进入外层加速圈 → 立即把方向修正为面向浮漂。
-          if (dist <= accelerateR && item.vel.distance > 0) {
-            item.vel = toBuoy / dist * item.vel.distance;
+          // 情况四：进入加速圈后把方向转向浮漂。
+          // 用**有上限的转向速率**而不是瞬间对齐——瞬间改向在 40px/s 下
+          // 会造成约 20px/s 的单帧速度突变，看起来是一次折角。
+          if (dist <= accelerateR && item.speed > 0) {
+            item.dir = _turnToward(item.dir, toBuoy / dist, _turnRate * dt);
+            item.vel = item.dir * item.speed;
           }
           // 情况四：进入内层判定圈 → 判定上钩、速度清零，交回会话收杆。
           if (dist <= catchR) {
+            item.speed = 0;
             item.vel = Offset.zero;
             _pendingHook ??= item;
           }
@@ -866,11 +883,72 @@ class PondModel {
     return item;
   }
 
-  /// §5.3 情况三：静止后重新起步。
+  /// §5.3 情况二/三：惯性滑行 + "起步 → 巡航 → 刹车 → 静止 → 换向"。
   ///
-  /// 方向用**该物体自己的随机源**抽取：以 [bias] 的概率朝浮漂（仍带角度
-  /// 抖动，不会直勾勾排队），否则纯随机方向；速度大小同样各自抽。
-  Offset _restartVelocity(PondItem item, Offset center, double bias) {
+  /// **关键约束：除真正的冲量（击散/碰撞/被挤开）外，速率必须连续变化。**
+  /// 早期实现是在速率跌破阈值时直接把速度赋成新的随机值，实测单帧
+  /// |Δv| 高达 60px/s——看起来就是"一跳一跳"的卡顿。方向也只在速率为 0
+  /// 的静止段更换，换向因此不可见。
+  void _updateWander(
+    PondItem item,
+    double dt,
+    Offset? center,
+    bool buoyShown,
+    double bias,
+  ) {
+    if (item.inertia) {
+      item.vel *= exp(-_drag * dt);
+      item.speed = item.vel.distance;
+      if (item.speed > 0.01) item.dir = item.vel / item.speed;
+      if (item.speed <= _wanderMin) {
+        item.inertia = false;
+        _startLeg(item, center, buoyShown, bias);
+      }
+      item.vel = item.dir * item.speed;
+      return;
+    }
+
+    item.legLeft -= dt;
+    switch (item.legPhase) {
+      case 0: // 起步：速率 0 → 巡航值（线性斜坡）
+        item.speed =
+            item.cruiseSpeed * (1 - item.legLeft / _legAccelSec).clamp(0.0, 1.0);
+        if (item.legLeft <= 0) {
+          item.speed = item.cruiseSpeed;
+          item.legPhase = 1;
+          item.legLeft = 1.2 + item.rng.nextDouble() * 2.2;
+        }
+      case 1: // 巡航
+        item.speed = item.cruiseSpeed;
+        if (item.legLeft <= 0) {
+          item.legPhase = 2;
+          item.legLeft = _legBrakeSec;
+        }
+      case 2: // 刹车：巡航值 → 0
+        item.speed =
+            item.cruiseSpeed * (item.legLeft / _legBrakeSec).clamp(0.0, 1.0);
+        if (item.legLeft <= 0) {
+          item.speed = 0;
+          item.legPhase = 3;
+          item.legLeft = 0.35 + item.rng.nextDouble() * 0.8;
+        }
+      default: // 静止：速率为 0，此时换向不可见
+        item.speed = 0;
+        if (item.legLeft <= 0) _startLeg(item, center, buoyShown, bias);
+    }
+    item.vel = item.dir * item.speed;
+  }
+
+  /// 开一段新游走。方向与速率都用**该物件自己的随机源**抽：以 [bias] 的
+  /// 概率朝浮漂（带角度抖动，不会直勾勾排队），否则纯随机方向。
+  void _startLeg(PondItem item, Offset? center, bool buoyShown, double bias) {
+    if (!buoyShown || center == null) {
+      item.speed = 0;
+      item.vel = Offset.zero;
+      item.legPhase = 3;
+      item.legLeft = 0.2;
+      return;
+    }
     final double angle;
     if (item.rng.nextDouble() < bias) {
       final base = atan2(center.dy - item.pos.dy, center.dx - item.pos.dx);
@@ -878,9 +956,30 @@ class PondModel {
     } else {
       angle = item.rng.nextDouble() * 2 * pi;
     }
-    item.wanderSpeed =
+    item.dir = Offset(cos(angle), sin(angle));
+    item.cruiseSpeed =
         _wanderMin + item.rng.nextDouble() * (_wanderMax - _wanderMin);
-    return Offset(cos(angle), sin(angle)) * item.wanderSpeed;
+    item.legPhase = 0;
+    item.legLeft = _legAccelSec;
+    item.speed = 0;
+    item.vel = Offset.zero;
+  }
+
+  /// 把 [from] 这个单位方向朝 [to] 最多旋转 [maxRad] 弧度（有符号取近路）。
+  Offset _turnToward(Offset from, Offset to, double maxRad) {
+    final dot = (from.dx * to.dx + from.dy * to.dy).clamp(-1.0, 1.0);
+    final cross = from.dx * to.dy - from.dy * to.dx;
+    final angle = atan2(cross, dot);
+    final step = angle.clamp(-maxRad, maxRad);
+    final c = cos(step), sn = sin(step);
+    return Offset(from.dx * c - from.dy * sn, from.dx * sn + from.dy * c);
+  }
+
+  /// 把外部冲量记到物件上：进入"惯性滑行"，只吃阻力衰减。
+  void _applyImpulse(PondItem item) {
+    item.speed = item.vel.distance;
+    if (item.speed > 0.01) item.dir = item.vel / item.speed;
+    item.inertia = true;
   }
 
   /// §5.3 情况六：碰屏幕边缘镜面反射（带恢复系数）。
@@ -927,6 +1026,8 @@ class PondModel {
         final impulse = -(1 + _restitution) * rel / (1 / a.mass + 1 / b.mass);
         a.vel = a.vel - dir * (impulse / a.mass);
         b.vel = b.vel + dir * (impulse / b.mass);
+        _applyImpulse(a);
+        _applyImpulse(b);
       }
     }
   }
