@@ -2,7 +2,7 @@
     <!-- 修炼报告的 LLM 请求需要联网（release 构建默认不带 INTERNET 权限）。 -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="盲僧"
+        android:label="忙僧"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
