@@ -145,7 +145,8 @@ class TideBreathSession extends PracticeSession {
     allowManualEnd: true,
     usesAmbientLoop: false,
     rulesText: '潮涨渐强时，按住屏幕吸气；潮落渐弱时，松开屏幕呼气。憋气段保持按住。\n跟随音乐的引导，与潮水一同呼吸。',
-    introTags: '呼吸·潮水·5分钟',
+    // Bug#7（第二轮）：去掉"助眠"（助眠模式已按 §7.1 删除）。
+    introTags: '呼吸·白噪声',
     intro: '潮涌，潮落，这是自然的呼吸。跟随音乐的引导，与潮水一同呼吸，如此重复五分钟，不必睁眼。',
   );
 
@@ -398,21 +399,7 @@ class TideBreathSession extends PracticeSession {
     );
   }
 
-  String get _phaseLabel {
-    if (!_breathing) return '潮 水 · 静';
-    final envelope = _segments[_segIndex].envelope;
-    return switch (envelope) {
-      BreathEnvelope.up => '潮 涨 · 吸',
-      BreathEnvelope.holdHigh || BreathEnvelope.holdLow => '憋 气 · 按',
-      BreathEnvelope.down => '潮 落 · 呼',
-    };
-  }
 
-  String get _phaseHint {
-    if (!_breathing) return '听潮水 · 稍候';
-    if (_handsFree) return '解放双手 · 跟随圆圈';
-    return _segments[_segIndex].pressExpected ? '按住屏幕' : '松开屏幕';
-  }
 
   @override
   Widget buildVisual(BuildContext c) {
@@ -421,8 +408,11 @@ class TideBreathSession extends PracticeSession {
         Positioned.fill(
           child: PracticeScene(
             kind: PracticeSceneKind.tideBreath,
-            title: _phaseLabel,
-            subtitle: _phaseHint,
+            // Bug#9/10（第二轮）：顶部不再随呼吸阶段切换"潮涨·吸/潮落·呼/
+            // 憋气·按"，固定只显示"听 潮"；底部提示也固定为"跟随音乐"，
+            // 不再间歇切换"按住屏幕/松开屏幕"（§10.7 覆盖 §10.5）。
+            title: '听 潮',
+            subtitle: '跟随音乐',
             active: _growActive,
             count: _phaseBoundariesUs.length,
             accent: _phaseMatchesInput ? 1 : 0.25,

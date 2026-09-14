@@ -156,4 +156,57 @@ void main() {
     );
     bank.dispose();
   });
+
+  test('加载中停止音轨：准备完成后不得播放（P1）', () async {
+    final player = _DelayedLoopPlayer();
+    final bank = AudioPlayersSoundBank(loopPlayerFactory: () => player);
+    await bank.register({'rain': 'sfx/rain.m4a'});
+
+    final starting = bank.startLoop('rain', gain: 0.3);
+    await player.prepareStarted.future;
+
+    // 加载还没完成就停止：此时播放器尚未登记，stopLoop 看不到它。
+    await bank.stopLoop('rain');
+    player.prepared.complete();
+    await starting;
+
+    expect(player.calls, isNot(contains('resume')),
+        reason: '已经停止的音轨，不能在加载完成后照样起播');
+    expect(player.calls, contains('stop'),
+        reason: '加载返回后应丢弃这个刚建好的播放器');
+  });
+
+  test('复用播放器时显式零起点必须 seek（P2）', () async {
+    final player = _DelayedLoopPlayer();
+    final bank = AudioPlayersSoundBank(loopPlayerFactory: () => player);
+    await bank.register({'guide': 'bgm/guide.m4a'});
+
+    final first = bank.startLoop('guide', gain: 0.4, startAt: Duration.zero);
+    await player.prepareStarted.future;
+    player.prepared.complete();
+    await first;
+    player.calls.clear();
+
+    // 第二次启动复用同一个播放器：显式零起点必须真的回到 0。
+    await bank.startLoop('guide', gain: 0.4, startAt: Duration.zero);
+    expect(player.calls, contains('seek:${Duration.zero}'),
+        reason: '复用播放器时把零当成"不 seek"，会保留上一局的进度');
+  });
+
+  test('不传起点（null）时保持原位，不额外 seek', () async {
+    final player = _DelayedLoopPlayer();
+    final bank = AudioPlayersSoundBank(loopPlayerFactory: () => player);
+    await bank.register({'birds': 'sfx/birds.m4a'});
+
+    final first = bank.startLoop('birds', gain: 0.3);
+    await player.prepareStarted.future;
+    player.prepared.complete();
+    await first;
+    player.calls.clear();
+
+    await bank.startLoop('birds', gain: 0.3);
+    expect(player.calls.where((c) => c.startsWith('seek')), isEmpty,
+        reason: 'null 的语义是保持原位，不该 seek');
+  });
+
 }

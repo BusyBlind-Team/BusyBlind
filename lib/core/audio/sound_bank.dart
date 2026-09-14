@@ -151,6 +151,13 @@ class AudioPlayersSoundBank implements SoundBank {
   /// 当前版本的操作才允许继续，避免旧的 pause 在快速恢复后反过来停掉音轨。
   int _lifecycleVersion = 0;
 
+  /// 每个 key 的"启动代号"。startLoop 与 stopLoop 都会推进它。
+  ///
+  /// 播放器要等 prepareAsset 完成才登记进 [_loops]，所以加载期间调用的
+  /// stopLoop 根本看不到它、只能空转；等加载返回后 startLoop 照样登记并
+  /// resume——"停止"就被吞掉了。代号用来在加载返回时识别这次启动已被取消。
+  final Map<String, int> _loopEpoch = {};
+
   @override
   Future<void> register(Map<String, String> assetByKey) async {
     _assets.addAll(assetByKey);
@@ -191,13 +198,32 @@ class AudioPlayersSoundBank implements SoundBank {
     final asset = _assets[key];
     assert(asset != null, 'SoundBank: 未预加载音轨 "$key"');
     if (asset == null) return;
+
+    final epoch = (_loopEpoch[key] ?? 0) + 1;
+    _loopEpoch[key] = epoch;
+
     var player = _loops[key];
-    player ??= await _createLoopPlayer(key, asset);
+    if (player == null) {
+      final created = await _createLoopPlayer(key, asset);
+      // 加载期间可能已经被 stopLoop（或另一次 startLoop）取消：此时绝不能
+      // 登记、更不能播放，否则声音会在"已停止"之后照常响起来。
+      if (_loopEpoch[key] != epoch) {
+        await created.stop();
+        await created.dispose();
+        return;
+      }
+      _loops[key] = created;
+      player = created;
+    }
     _activeLoopKeys.add(key);
     await player.setVolume(gain.clamp(0.0, 1.0).toDouble());
-    if (startAt != null && startAt > Duration.zero) {
+    // 显式给的起点（**含 Duration.zero**）都要 seek：复用的播放器会停在
+    // 上次的位置，把零当成"不 seek"会让上一局的进度带进下一局。
+    // null 才是"保持原位"。
+    if (startAt != null) {
       await player.seek(startAt);
     }
+    if (_loopEpoch[key] != epoch) return;
     if (_allPaused) {
       await player.pause();
       return;
@@ -215,7 +241,7 @@ class AudioPlayersSoundBank implements SoundBank {
     // play → stop 在耳机中短促突响；真正的目标音量在 resume 前设置。
     await player.setVolume(0);
     await player.prepareAsset(asset);
-    _loops[key] = player;
+    // 不在这里登记：登记必须等 startLoop 确认这次启动没被取消之后再做。
     return player;
   }
 
@@ -226,6 +252,8 @@ class AudioPlayersSoundBank implements SoundBank {
 
   @override
   Future<void> stopLoop(String key) async {
+    // 推进代号：正在加载（尚未登记）的那次启动会据此丢弃自己。
+    _loopEpoch[key] = (_loopEpoch[key] ?? 0) + 1;
     _activeLoopKeys.remove(key);
     final player = _loops.remove(key);
     if (player != null) {

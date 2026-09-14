@@ -65,27 +65,17 @@ class AchievementsPage extends ConsumerWidget {
           const SizedBox(height: 20),
           const _SectionTitle('花瓣图鉴'),
           Text(
-            '钓到的花瓣带稀有度（概率：常见 70% / 稀有 25% / 奇珍 5%）。'
-            '当前：常见 ${store.petalCountOf(PetalRarity.common)} · '
+            '钓到的花瓣在上钩那一刻就定了花种（概率：常见 70% / 稀有 25% / '
+            '奇珍 5%，同一稀有度内各花机会均等）。当前：'
+            '常见 ${store.petalCountOf(PetalRarity.common)} · '
             '稀有 ${store.petalCountOf(PetalRarity.rare)} · '
             '奇珍 ${store.petalCountOf(PetalRarity.legendary)} 枚。'
-            '投入对应稀有度的瓣数，合成对应的花。好友交换走"友"（暂未开放）。',
+            '攒够某朵花所需的瓣数，即可合成它。好友交换走"友"（暂未开放）。',
             style: const TextStyle(color: AppTheme.inkFaint, fontSize: 12),
           ),
           const SizedBox(height: 8),
-          // 每个组合一行：档位 × 稀有度（该组合有花才显示）。
-          for (final tier in kCraftTiers)
-            for (final rarity in PetalRarity.values)
-              if (kFlowerSpecies
-                  .any((f) => f.petals == tier && f.rarity.rarityKey == rarity.id))
-                CraftRow(
-                  tierPetalCount: tier,
-                  rarity: rarity,
-                  petalCount: store.petalCountOf(rarity),
-                  onCraft: () => _craft(context, ref, tier, rarity),
-                ),
-          const SizedBox(height: 12),
-          // 按稀有度依次排列：瓣数升档，档内常见在前（改进列表花名修正）。
+          // 按瓣数升档、档内常见在前（改进列表花名修正）；
+          // 每行即一个花种：已有瓣数 / 需要瓣数，够了就能合成。
           for (final species
               in (kFlowerSpecies.toList()
                 ..sort((a, b) {
@@ -95,7 +85,9 @@ class AchievementsPage extends ConsumerWidget {
                 })))
             FlowerRow(
               species: species,
-              owned: store.flowers.contains(species.id),
+              owned: store.ownsFlower(species.id),
+              petalCount: store.petalCountOfSpecies(species.id),
+              onCraft: () => _craft(context, ref, species),
             ),
           const SizedBox(height: 32),
         ],
@@ -103,8 +95,8 @@ class AchievementsPage extends ConsumerWidget {
     );
   }
 
-  void _craft(BuildContext context, WidgetRef ref, int tier, PetalRarity rarity) {
-    final drawn = ref.read(storeProvider).craftFlower(tier, rarity);
+  void _craft(BuildContext context, WidgetRef ref, FlowerSpecies species) {
+    final drawn = ref.read(storeProvider).craftFlower(species.id);
     if (drawn == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

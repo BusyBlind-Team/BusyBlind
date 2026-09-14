@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -98,6 +97,27 @@ class AppStore extends ChangeNotifier {
       byRarity['common'] = (byRarity['common'] as int? ?? 0) + petalsNow;
       data['petals'] = 0;
     }
+    // 花瓣口径迁移 v3（新要求 #1）：花瓣在上钩那一刻就定种，所以存量改为
+    // 按**花种**分桶。老存档里"只知稀有度、不知花种"的余量按图鉴顺序
+    // 轮流摊到该稀有度的花种上（确定性、总数不丢），摊完清零 —— 这也让
+    // 迁移天然幂等：再跑一次时余量已经是 0。
+    final bySpecies = data['petalsBySpecies'];
+    if (byRarity is Map && bySpecies is Map) {
+      for (final rarity in PetalRarity.values) {
+        var left = byRarity[rarity.id] as int? ?? 0;
+        if (left <= 0) continue;
+        final pool = flowerSpeciesOfRarity(rarity);
+        if (pool.isEmpty) continue;
+        var i = 0;
+        while (left > 0) {
+          final id = pool[i % pool.length].id;
+          bySpecies[id] = (bySpecies[id] as int? ?? 0) + 1;
+          left--;
+          i++;
+        }
+        byRarity[rarity.id] = 0;
+      }
+    }
     // Key 分服务商保存（PR #14 复审 P1-2）：把升级前已填的 Key
     // 按其 baseUrl 播种进 llmKeys，避免老用户升级后丢 Key。
     final llm = data['llm'];
@@ -139,7 +159,9 @@ class AppStore extends ChangeNotifier {
     'tutorialsSeen': data['tutorialsSeen'] ?? <String>[],
     // 背景音乐设置：track = -2 无 / -1 随机 / 0..4 固定曲目；volume = 0..1。
     'bgm': data['bgm'] ?? {'track': -1, 'volume': 0.35},
-    // 花瓣按稀有度分桶（新改进意见：钓到概率 常见70%/稀有25%/奇珍5%）。
+    // 花瓣按**花种**分桶（新要求 #1：上钩那一刻就定种）。
+    'petalsBySpecies': data['petalsBySpecies'] ?? <String, int>{},
+    // 已废弃（迁移 v3 会把余量摊到花种上并清零）；保留键只做老存档兼容。
     'petalsByRarity': data['petalsByRarity'] ??
         {'common': 0, 'rare': 0, 'legendary': 0},
     // 各服务商（按 baseUrl）分别保存的 API Key，避免切换服务商串密钥。
@@ -254,45 +276,61 @@ class AppStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- 花瓣与图鉴（新改进意见：花瓣带稀有度；对应稀有度的瓣数合成对应花）----
+  // ---- 花瓣与图鉴（新要求 #1：上钩即定种；攒够该花种的瓣数合成这朵花）----
 
-  /// 各稀有度花瓣存量，key 为 PetalRarity.id（common/rare/legendary）。
+  /// 各花种花瓣存量，key 为 FlowerSpecies.id（osmanthus/peach/…）。
+  Map<String, int> get petalsBySpecies =>
+      (_data['petalsBySpecies']! as Map).cast<String, int>();
+
+  /// 老存档遗留的"只知稀有度、不知花种"余量（迁移 v3 已摊到花种上并
+  /// 清零；这里保留读取，未迁移的存档也不会丢瓣数）。
   Map<String, int> get petalsByRarity =>
       (_data['petalsByRarity']! as Map).cast<String, int>();
 
-  int petalCountOf(PetalRarity rarity) =>
-      petalsByRarity[rarity.id] ?? 0;
+  int petalCountOfSpecies(String speciesId) =>
+      petalsBySpecies[speciesId] ?? 0;
 
-  int get petalCount => petalsByRarity.values.fold(0, (a, b) => a + b);
+  /// 稀有度存量：该稀有度各花种之和（老存档未摊完的余量也计入）。
+  int petalCountOf(PetalRarity rarity) {
+    var total = petalsByRarity[rarity.id] ?? 0;
+    for (final species in flowerSpeciesOfRarity(rarity)) {
+      total += petalCountOfSpecies(species.id);
+    }
+    return total;
+  }
+
+  int get petalCount => petalsBySpecies.values.fold(0, (a, b) => a + b);
 
   List<String> get flowers => (_data['flowers']! as List).cast<String>();
 
-  void addPetal(PetalRarity rarity) {
-    final p = _data['petalsByRarity']! as Map;
-    p[rarity.id] = (p[rarity.id] as int? ?? 0) + 1;
+  bool ownsFlower(String speciesId) => flowers.contains(speciesId);
+
+  /// 钓到一片 [speciesId] 的花瓣。
+  void addPetal(String speciesId) {
+    final p = _data['petalsBySpecies']! as Map;
+    p[speciesId] = (p[speciesId] as int? ?? 0) + 1;
     _save();
     notifyListeners();
   }
 
-  /// 投入 [tier] 枚 [rarity] 花瓣，合成该档位该稀有度的一朵花
-  ///（如 4 枚常见 → 桂花；8 枚奇珍 → 莲花）。花瓣不足或该组合没有花
-  /// 返回 null（不扣花瓣）；成功则扣花瓣并记入图鉴。
-  FlowerSpecies? craftFlower(int tier, PetalRarity rarity, {Random? rng}) {
-    if (petalCountOf(rarity) < tier) return null;
-    final pool = kFlowerSpecies
-        .where((f) => f.petals == tier && f.rarity.rarityKey == rarity.id)
-        .toList();
-    if (pool.isEmpty) return null;
-    final drawn = pool[(rng ?? Random()).nextInt(pool.length)];
-    final p = _data['petalsByRarity']! as Map;
-    p[rarity.id] = (p[rarity.id] as int? ?? 0) - tier;
+  /// 投入该花种所需的瓣数（4/5/6/8），合成这朵花。
+  ///
+  /// 花瓣按花种分别计数，所以"钓到的是哪种花的花瓣"直接决定能合成什么：
+  /// 4 片桂花花瓣 → 桂花，8 片莲花花瓣 → 莲花。瓣数不足返回 null
+  ///（不扣花瓣）；成功则扣花瓣并记入图鉴。
+  FlowerSpecies? craftFlower(String speciesId) {
+    final species = flowerById(speciesId);
+    if (species.id != speciesId) return null; // 未知花种，不误合成桂花
+    if (petalCountOfSpecies(speciesId) < species.petals) return null;
+    final p = _data['petalsBySpecies']! as Map;
+    p[speciesId] = (p[speciesId] as int) - species.petals;
     final flowers = _data['flowers']! as List;
-    if (!flowers.contains(drawn.id)) {
-      flowers.add(drawn.id);
+    if (!flowers.contains(species.id)) {
+      flowers.add(species.id);
     }
     _save();
     notifyListeners();
-    return drawn;
+    return species;
   }
 
   // ---- 成就 ----

@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../di.dart';
 import '../../domain/achievements.dart';
-import '../../domain/petals.dart';
 import 'practice_art.dart';
 import '../../theme.dart';
 import '../audio/bgm_player.dart';
@@ -89,7 +88,9 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       duration: const Duration(seconds: 4),
     );
     _session = widget.factory();
-    _tutorialDone = ref.read(storeProvider).isTutorialSeen(_session.manifest.id);
+    _tutorialDone = ref
+        .read(storeProvider)
+        .isTutorialSeen(_session.manifest.id);
     _bootstrap();
   }
 
@@ -113,7 +114,9 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       AmbiencePolicy.riverOnly => SoundCatalog.ambRiverKey,
       AmbiencePolicy.stream => SoundCatalog.ambStreamKey,
       AmbiencePolicy.birdsOrInsects =>
-        Random().nextBool() ? SoundCatalog.ambBirdsKey : SoundCatalog.ambInsectsKey,
+        Random().nextBool()
+            ? SoundCatalog.ambBirdsKey
+            : SoundCatalog.ambInsectsKey,
       AmbiencePolicy.sessionOwned => SoundCatalog.ambTideKey,
       AmbiencePolicy.none => null,
     };
@@ -201,11 +204,11 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
               volume: (_ctx?.params['bgmVolume'] as num?)?.toDouble() ?? 0.35,
             )
             .then((_) {
-          if (mounted && _running) {
-            setState(() => _bgmName = _bgm.trackName);
-            _bgmSpin.repeat();
-          }
-        });
+              if (mounted && _running) {
+                setState(() => _bgmName = _bgm.trackName);
+                _bgmSpin.repeat();
+              }
+            });
       } else if (bgmAsset != null) {
         if (mounted) {
           setState(() => _bgmName = _bgmTrackName);
@@ -228,7 +231,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
     params.remove('ambientVolume');
     final policy = _session.manifest.ambience;
     // §14.1/§2：过河只播河流、听潮自带潮水，都不播五首 BGM。
-    final playBgm = policy != AmbiencePolicy.riverOnly &&
+    final playBgm =
+        policy != AmbiencePolicy.riverOnly &&
         policy != AmbiencePolicy.sessionOwned;
     final resolved = SoundCatalog.resolveTrack(_bgmChoice);
     _bgmTrackName = playBgm ? (resolved?.name ?? '') : '';
@@ -374,8 +378,8 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
       for (final reward in result.extraRewards) {
         switch (reward.kind) {
           case RewardKind.petal:
-            // 花瓣带稀有度（新改进意见）：reward.id = common/rare/legendary。
-            store.addPetal(petalRarityById(reward.id));
+            // 花瓣在上钩那一刻就定了花种（新要求 #1）：reward.id = 花种 id。
+            store.addPetal(reward.id);
           case RewardKind.slip:
             break;
         }
@@ -477,82 +481,96 @@ class _PracticeHostPageState extends ConsumerState<PracticeHostPage>
 
     // 所有修行在修行过程界面都有退出入口（改进列表）。
     final showEndChip = _running && _result == null && !_finishing;
-    return PopScope<Object?>(
-      // 运行中拦截系统返回：按"用户结束"走正常结算收口，不丢结果。
-      canPop: !_running || _finishing,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _running && !_finishing) {
-          _finish(FinishReason.cancelled);
-        }
-      },
-      child: Stack(
-        children: [
-          Positioned.fill(child: child),
-          if (showEndChip)
-            Positioned(
-              top: 48,
-              right: 20,
-              child: SafeArea(
-                child: GestureDetector(
-                  onTap: () => _finish(FinishReason.userEnded),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0x22FFFFFF),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: const Text(
-                      '退出',
-                      style: TextStyle(color: Color(0x99FFFFFF), fontSize: 13),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          // 修行 BGM 指示：上方小字曲名 + 旋转唱片机（改进列表）。
-          if (_bgmName.isNotEmpty)
-            Positioned(
-              top: 48,
-              left: 0,
-              right: 0,
-              child: SafeArea(
-                child: Center(
-                  child: AnimatedBuilder(
-                    animation: _bgmSpin,
-                    builder: (context, _) {
-                      final paused = _bgmSpin.isAnimating ? 1.0 : 0.0;
-                      return Opacity(
-                        opacity: 0.55,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CustomPaint(
-                              size: const Size(14, 14),
-                              painter: _DiscPainter(
-                                angle: _bgmSpin.value * 2 * 3.14159265,
-                                visible: paused,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '♪ $_bgmName',
-                              style: const TextStyle(
-                                color: Color(0x88E8DFC8),
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
+    // Bug#8（第二轮）：这里兜一层正常文本样式。
+    //
+    // 修行页顶部的「退出」「♪ 曲名」是 Stack 覆盖层里的裸 Text，没有
+    // Material/Scaffold 祖先，会继承 WidgetsApp 的 _errorTextStyle
+    //（纯黄双下划线）——传进来的 TextStyle 只设了颜色字号、没写 decoration，
+    // 下划线就漏出来了。app 根的 MaterialApp.builder 已做全局兜底，这里再
+    // 保一层：修行页不依赖宿主根组件提供合理的默认样式。
+    return DefaultTextStyle(
+      style: (Theme.of(context).textTheme.bodyMedium ?? const TextStyle())
+          .copyWith(decoration: TextDecoration.none),
+      child: PopScope<Object?>(
+        // 运行中拦截系统返回：按"用户结束"走正常结算收口，不丢结果。
+        canPop: !_running || _finishing,
+        onPopInvokedWithResult: (didPop, _) {
+          if (!didPop && _running && !_finishing) {
+            _finish(FinishReason.cancelled);
+          }
+        },
+        child: Stack(
+          children: [
+            Positioned.fill(child: child),
+            if (showEndChip)
+              Positioned(
+                top: 48,
+                right: 20,
+                child: SafeArea(
+                  child: GestureDetector(
+                    onTap: () => _finish(FinishReason.userEnded),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0x22FFFFFF),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Text(
+                        '退出',
+                        style: TextStyle(
+                          color: Color(0x99FFFFFF),
+                          fontSize: 13,
                         ),
-                      );
-                    },
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-        ],
+            // 修行 BGM 指示：上方小字曲名 + 旋转唱片机（改进列表）。
+            if (_bgmName.isNotEmpty)
+              Positioned(
+                top: 48,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  child: Center(
+                    child: AnimatedBuilder(
+                      animation: _bgmSpin,
+                      builder: (context, _) {
+                        final paused = _bgmSpin.isAnimating ? 1.0 : 0.0;
+                        return Opacity(
+                          opacity: 0.55,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CustomPaint(
+                                size: const Size(14, 14),
+                                painter: _DiscPainter(
+                                  angle: _bgmSpin.value * 2 * 3.14159265,
+                                  visible: paused,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                '♪ $_bgmName',
+                                style: const TextStyle(
+                                  color: Color(0x88E8DFC8),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -573,7 +591,11 @@ class _DiscPainter extends CustomPainter {
     canvas.translate(c.dx, c.dy);
     canvas.rotate(angle);
     canvas.drawCircle(Offset.zero, r, Paint()..color = const Color(0x66E8DFC8));
-    canvas.drawCircle(Offset.zero, r * 0.35, Paint()..color = const Color(0x33050505));
+    canvas.drawCircle(
+      Offset.zero,
+      r * 0.35,
+      Paint()..color = const Color(0x33050505),
+    );
     canvas.drawLine(
       Offset(-r, 0),
       Offset(r, 0),
@@ -654,9 +676,7 @@ class _TutorialOverlayState extends State<_TutorialOverlay> {
   @override
   Widget build(BuildContext context) {
     final tutorial = _tutorial;
-    final text = tutorial == null
-        ? ''
-        : tutorial.pages[_page].text;
+    final text = tutorial == null ? '' : tutorial.pages[_page].text;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: _advance,
@@ -778,7 +798,8 @@ class _StartOverlayState extends State<_StartOverlay> {
                 trailing: widget.bgmChoice == SoundCatalog.bgmTrackRandom
                     ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
                     : null,
-                onTap: () => Navigator.of(context).pop(SoundCatalog.bgmTrackRandom),
+                onTap: () =>
+                    Navigator.of(context).pop(SoundCatalog.bgmTrackRandom),
               ),
               ListTile(
                 dense: true,
@@ -789,7 +810,8 @@ class _StartOverlayState extends State<_StartOverlay> {
                 trailing: widget.bgmChoice == SoundCatalog.bgmTrackNone
                     ? const Icon(Icons.check, color: AppTheme.gold, size: 18)
                     : null,
-                onTap: () => Navigator.of(context).pop(SoundCatalog.bgmTrackNone),
+                onTap: () =>
+                    Navigator.of(context).pop(SoundCatalog.bgmTrackNone),
               ),
             ],
           ),
@@ -806,23 +828,43 @@ class _StartOverlayState extends State<_StartOverlay> {
     final art = practiceArtFor(widget.session.manifest.iconKey);
 
     return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             // 修行插画横幅（Bug 描述 #2）：从介绍详情移到准备开始界面。
+            // Bug#1（第二轮）：原先是 height:132 + BoxFit.cover，把 600×600
+            // 的方图压成横条、上下裁掉大半（过河连僧人头部都看不见）。
+            // 改为 1:1 容器撑满可用宽度：源图本身就是 1:1，cover 不会裁到主体。
             if (art != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: Image.asset(
-                  art,
-                  width: double.infinity,
-                  height: 132,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const SizedBox(height: 0),
-                ),
+              // Bug#1（第二轮）：原先是 height:132 + BoxFit.cover，把 600×600
+              // 的方图压成横条、上下裁掉大半（过河连僧人头部都看不见）。
+              // 现在固定 1:1 完整显示，不上下裁切。
+              //
+              // 但屏幕高度有限：无脑"宽度撑满"会让整页溢出（实测溢 430px），
+              // 所以边长取「可用宽度」与「屏高 42%」的较小值——高屏上就是
+              // 撑满宽度，矮屏上自动退让，始终维持 1:1 且不裁主体。
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  final maxSide = MediaQuery.sizeOf(context).height * 0.42;
+                  final side = constraints.maxWidth < maxSide
+                      ? constraints.maxWidth
+                      : maxSide;
+                  return ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: SizedBox(
+                      width: side,
+                      height: side,
+                      child: Image.asset(
+                        art,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox(height: 0),
+                      ),
+                    ),
+                  );
+                },
               ),
               const SizedBox(height: 18),
             ],
@@ -869,10 +911,11 @@ class _StartOverlayState extends State<_StartOverlay> {
               if (details.length == choices.length) ...[
                 const SizedBox(height: 14),
                 _StartChoiceDetailCard(
-                  detail: details[widget.session.startChoice.clamp(
-                    0,
-                    details.length - 1,
-                  )],
+                  detail:
+                      details[widget.session.startChoice.clamp(
+                        0,
+                        details.length - 1,
+                      )],
                 ),
               ],
             ],

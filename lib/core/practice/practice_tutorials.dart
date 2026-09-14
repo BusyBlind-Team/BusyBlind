@@ -66,7 +66,7 @@ final Map<String, PracticeTutorial> kPracticeTutorials = {
     ),
     PracticeTutorialPage('甩杆会打散附近的花瓣，抛竿后请耐心等待'),
     PracticeTutorialPage('钓花随时可以退出，清点收获'),
-    PracticeTutorialPage('一定数量钓到的花瓣可以在成就界面合成一朵完整的花'),
+    PracticeTutorialPage('花瓣一上钩就定了是哪种花；同一种花的花瓣攒够数量，可在成就界面合成这朵花'),
     PracticeTutorialPage('努力收集花的图鉴吧'),
   ]),
   'cross_river': PracticeTutorial([

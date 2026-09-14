@@ -10,6 +10,7 @@ import 'package:busy_blind/core/practice/practice_registry.dart';
 import 'package:busy_blind/core/practice/practice_result.dart';
 import 'package:busy_blind/core/practice/practice_session.dart';
 import 'package:busy_blind/core/practice/practice_types.dart';
+import 'package:busy_blind/domain/petals.dart';
 import 'package:busy_blind/practices/count_rain.dart';
 import 'package:busy_blind/practices/cross_river.dart';
 import 'package:busy_blind/practices/fish_petals.dart';
@@ -124,7 +125,7 @@ void main() {
   });
 
   group('木鱼', () {
-    test('108 声整间隔 → 偏移 0，修为 15，里程碑磬两次', () async {
+    test('108 声整间隔 → 偏移 0，修为 15，仅播放木鱼声', () async {
       FinishReason? reason;
       final (ctx, _, sounds, _) = makeContext((r) => reason = r);
       final session = WoodenFishSession();
@@ -145,6 +146,28 @@ void main() {
       expect(sounds.played.where((k) => k == 'chime_soft'), isEmpty);
       expect(sounds.played.where((k) => k == 'muyu').length, 108);
     });
+
+    for (final intervalUs in [200000, 2500000]) {
+      test('间隔 ${intervalUs / 1000000} 秒敲满 108 下，始终播放正式木鱼声', () async {
+        FinishReason? reason;
+        final (ctx, _, sounds, scheduler) = makeContext((r) => reason = r);
+        final session = WoodenFishSession();
+        await session.prepare(ctx);
+        session.start();
+
+        for (var i = 0; i < 108; i++) {
+          session.onInput(tap(i * intervalUs));
+        }
+
+        expect(reason, FinishReason.completed);
+        expect(sounds.played, List.filled(108, SoundCatalog.muyuKey));
+        final result = await session.finish(reason!);
+        expect(result.metrics['strikes'], 108);
+        expect(result.merit, 0, reason: '音色统一不改变快慢节奏的评分');
+        session.dispose();
+        scheduler.dispose();
+      });
+    }
 
     test('整体偏慢 5.35 秒 → 修为 = round(15 − 5.35) = 10', () async {
       FinishReason? reason;
@@ -489,7 +512,7 @@ void main() {
       expect(FishPetalsSession.biteRatePerSecond(120000000), closeTo(0.60, 0.001));
     });
 
-    test('叮后窗口内收手→花瓣入库；叮超时→流失；咚久握→4s 自动休整', () {
+    test('叮后窗口内收手→花瓣入库；叮超时→流失；咚久握→4s 自动沉掉', () {
       fakeAsync((async) {
         final (ctx, clock, _, scheduler) = makeContext((_) {});
         final session = FishPetalsSession();
@@ -511,14 +534,15 @@ void main() {
         async.elapse(const Duration(milliseconds: 200));
         expect(session.debugMissed, 1);
 
-        // 咚 + 久握 → 4s 自动空竿休整（未松手不计误收）。
+        // 咚 + 久握 → 4s 自动沉掉（未松手不计误收）。
+        // 新要求 #2：沉没**不收杆**，浮漂留在水里继续等下一件。
         clock.advanceUs(5000000); // 越过休竿期
         async.elapse(const Duration(milliseconds: 200));
         session.debugForceHook(petal: false);
         clock.advanceUs(4500000);
         async.elapse(const Duration(milliseconds: 200));
-        expect(session.debugIsResting, isTrue);
         expect(session.debugMiscatch, 0);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
         scheduler.dispose();
       });
     });
@@ -544,11 +568,176 @@ void main() {
         session.debugForceHook(petal: false);
         clock.advanceUs(4100000);
         async.elapse(const Duration(milliseconds: 200));
-        expect(session.debugIsResting, isTrue);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
         expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(2));
         scheduler.dispose();
         session.dispose();
       });
+    });
+
+    test('新要求 #1：花瓣上钩即定种，稀有度概率不变、同稀有度内各花均分', () {
+      // 直接对抽样函数做统计：4000 次。
+      final session = FishPetalsSession(rng: Random(20250912));
+      final byRarity = <PetalRarity, int>{};
+      final bySpecies = <String, int>{};
+      const n = 4000;
+      for (var i = 0; i < n; i++) {
+        final species = session.rollPetalSpecies();
+        final rarity = petalRarityOfSpecies(species);
+        byRarity[rarity] = (byRarity[rarity] ?? 0) + 1;
+        bySpecies[species.id] = (bySpecies[species.id] ?? 0) + 1;
+        // 花种必须属于它自己的稀有度池。
+        expect(flowerSpeciesOfRarity(rarity).map((s) => s.id),
+            contains(species.id));
+      }
+      // 稀有度概率不变：常见 70% / 稀有 25% / 奇珍 5%。
+      expect(byRarity[PetalRarity.common]! / n, closeTo(0.70, 0.03));
+      expect(byRarity[PetalRarity.rare]! / n, closeTo(0.25, 0.03));
+      expect(byRarity[PetalRarity.legendary]! / n, closeTo(0.05, 0.02));
+
+      // 十种花都可能钓到，且同稀有度内按花数均分。
+      for (final species in kFlowerSpecies) {
+        final rarity = petalRarityOfSpecies(species);
+        final pool = flowerSpeciesOfRarity(rarity).length;
+        final expected = n * (byRarity[rarity]! / n) / pool;
+        final got = bySpecies[species.id] ?? 0;
+        expect(got, greaterThan(expected * 0.6),
+            reason: '${species.displayName} 出现 $got 次，明显少于均分的 '
+                '${expected.toStringAsFixed(1)} 次——同稀有度内没有均分');
+        expect(got, lessThan(expected * 1.45),
+            reason: '${species.displayName} 出现 $got 次，明显多于均分的 '
+                '${expected.toStringAsFixed(1)} 次');
+      }
+      // 奇珍只有莲花，抽到奇珍就必然是莲花。
+      expect(bySpecies.length, kFlowerSpecies.length);
+    });
+
+    test('新要求 #1：钓到的花瓣当场带花名入库（奖励 id/label 都是花种）', () async {
+      final (ctx, clock, _, scheduler) = makeContext((_) {});
+      final session = FishPetalsSession(rng: Random(4));
+      await session.prepare(ctx);
+      scheduler.begin();
+      session.start();
+
+      // 连钓 12 次，每次都该是"某一种花的花瓣"（松手都在 1.5s 窗口内）。
+      final ids = <String>{};
+      for (var i = 0; i < 12; i++) {
+        session.debugForceHook(petal: true);
+        session.onInput(release(clock.nowUs() + 500000));
+      }
+      expect(session.debugPetals, 12);
+      final result = await session.finish(FinishReason.userEnded);
+      expect(result.extraRewards, hasLength(12));
+      for (final reward in result.extraRewards) {
+        final species = flowerById(reward.id);
+        expect(species.id, reward.id);
+        expect(reward.label, '花瓣（${species.displayName}）');
+        ids.add(reward.id);
+      }
+      // 12 次里不该只有一种（同稀有度内是均分，不是固定一种）。
+      expect(ids.length, greaterThan(1),
+          reason: '12 次全钓到同一种花瓣——定种没有按稀有度池均分');
+      session.dispose();
+      scheduler.dispose();
+    });
+
+    test('新要求 #2：沉没不收杆——浮漂留在原处，可以接着等下一件', () {
+      fakeAsync((async) {
+        final (ctx, clock, sounds, scheduler) = makeContext((_) {});
+        final session = FishPetalsSession();
+        session.prepare(ctx);
+        scheduler.begin();
+        session.start();
+
+        // 抛竿要带落点：判定与浮漂都依赖它（无落点的事件不会下水）。
+        session.onInput(
+          const InputEvent(
+            phase: PointerPhase.down,
+            absAudioUs: 0,
+            sessionUs: 0,
+            rawTimeStamp: Duration.zero,
+            position: Offset(200, 400),
+          ),
+        );
+        final buoyAt = session.debugPond.buoy;
+        expect(session.debugPond.buoyShown, isTrue);
+
+        // 叮后超窗 → 花瓣沉没。
+        session.debugForceHook(petal: true);
+        clock.advanceUs(1600000);
+        async.elapse(const Duration(milliseconds: 200));
+        expect(session.debugMissed, 1);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
+        expect(session.debugPond.buoyShown, isTrue, reason: '浮漂必须留在水里');
+        expect(session.debugPond.buoy, buoyAt, reason: '浮漂位置不该变');
+
+        // 同一个浮漂还能继续上钩、收杆入库——不必重新抛竿。
+        session.debugForceHook(petal: true);
+        session.onInput(release(clock.nowUs() + 500000));
+        expect(session.debugPetals, 1);
+        expect(session.debugMissed, 1);
+
+        // 想收杆就抬手：等待中抬手＝收杆（浮漂离水）。
+        session.onInput(tap(clock.nowUs()));
+        session.onInput(release(clock.nowUs() + 100000));
+        expect(session.debugPond.buoyShown, isFalse);
+        expect(session.debugIsResting, isTrue);
+        expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(1));
+        scheduler.dispose();
+        session.dispose();
+      });
+    });
+
+    test('新要求 #3：抛竿落在物件身上 → 先被击散，离开加速圈前不判上钩', () {
+      final pond = PondModel(rng: Random(11));
+      pond.resize(const Size(400, 800));
+      pond.debugClear();
+      // 落点正下方 6px：正好在加速圈以内（最坏情况）。
+      pond.debugAddItem(petal: true, pos: const Offset(206, 400));
+      final item = pond.items.single; // nearestOf 需要浮漂，此时还没抛竿
+      expect(item.spookLeft, 0);
+
+      pond.setBuoy(const Offset(200, 400), shown: true);
+      expect(item.spookLeft, greaterThan(0), reason: '落点内的物件必须先被击散');
+
+      var leftTheRingAt = -1;
+      for (var i = 0; i < 600; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        final dist = (item.pos - const Offset(200, 400)).distance;
+        expect(pond.takePendingHook(), isNull,
+            reason: '被击散的物件在滑出加速圈之前不得上钩（第 $i 帧）');
+        if (dist > PondModel.accelerateR) {
+          leftTheRingAt = i;
+          break;
+        }
+      }
+      expect(leftTheRingAt, greaterThanOrEqualTo(0),
+          reason: '击散力度不够：物件没能滑出加速圈，会被拽回来直接上钩');
+      // 滑出去之后免上钩标记就该清掉（之后正常加入漂流）。
+      pond.step(1 / 60, holdSeconds: 0);
+      expect(item.spookLeft, 0);
+      expect((item.pos - const Offset(200, 400)).distance,
+          greaterThan(PondModel.accelerateR));
+    });
+
+    test('新要求 #3：加速圈外漂进来的物件不受影响，照常上钩', () {
+      final pond = PondModel(rng: Random(12));
+      pond.resize(const Size(400, 800));
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(320, 400)); // 距落点 120
+      final item = pond.items.single;
+
+      pond.setBuoy(const Offset(200, 400), shown: true);
+      expect(item.spookLeft, 0, reason: '圈外的只是被推开，不是"优先击散"');
+      expect(item.inertia, isTrue, reason: '击散的冲量仍在（力度按距离衰减）');
+
+      // 自然漂进判定圈 → 照常上钩（不被"优先击散"挡住）。
+      var hooked = false;
+      for (var i = 0; i < 60 * 40 && !hooked; i++) {
+        pond.step(1 / 60, holdSeconds: 1);
+        hooked = pond.takePendingHook() != null;
+      }
+      expect(hooked, isTrue, reason: '圈外物件漂进来必须能上钩');
     });
 
     test('结算奖励文案带稀有度名称，插值未被转义（复审 R5）', () async {
@@ -560,12 +749,11 @@ void main() {
       session.debugForceHook(petal: true);
       session.onInput(release(0)); // 窗口内收杆
       final result = await session.finish(FinishReason.userEnded);
-      expect(result.extraRewards.single.id,
-          anyOf('common', 'rare', 'legendary'));
-      expect(
-        result.extraRewards.single.label,
-        anyOf('花瓣（常见）', '花瓣（稀有）', '花瓣（奇珍）'),
-      );
+      // 新要求 #1：上钩即定种，奖励 id 是图鉴里的花种，文案用花名。
+      final reward = result.extraRewards.single;
+      final species = flowerById(reward.id);
+      expect(species.id, reward.id, reason: '奖励 id 必须是图鉴里的花种 id');
+      expect(reward.label, '花瓣（${species.displayName}）');
       session.dispose();
       scheduler.dispose();
     });
@@ -716,8 +904,8 @@ void main() {
 
         session.onInput(tapAt(buoy));
         final item = pond.nearestOf(true)!;
-        final before = (item.pos - buoy).distance;
-        expect(before, greaterThan(PondModel.hookRadius));
+        final before = item.pos;
+        expect((before - buoy).distance, greaterThan(PondModel.catchR));
 
         // 只推进会话时钟与 100ms 轮询：界面动画完全不参与
         //（关闭动画后 layer 的 ticker 是停的）。旧实现里模拟只由绘制帧
@@ -726,12 +914,179 @@ void main() {
           clock.advanceUs(100000);
           async.elapse(const Duration(milliseconds: 100));
         }
-        final after = (item.pos - buoy).distance;
-        expect(after, lessThan(before - 5),
-            reason: '会话时间应推进池塘模拟：$before → $after');
+        // Bug#5 把移动改成速度模型后，"必然持续靠近"不再成立——静止后
+        // 重新起步的方向是概率性的（朝浮漂的偏向随时间上升）。这里守的是
+        // 本条 P1 的本意：模拟必须真的在推进。
+        expect((item.pos - before).distance, greaterThan(5),
+            reason: '会话时间应推进池塘模拟（物件必须真的移动过）');
         scheduler.dispose();
         session.dispose();
       });
+    });
+
+    test('Bug#5 双判定圈：进加速圈改向浮漂，进判定圈产出待上钩', () {
+      final pond = PondModel();
+      pond.resize(const Size(400, 600));
+      const buoy = Offset(200, 300);
+      pond.setBuoy(buoy, shown: true);
+      pond.debugClear();
+      // 放在加速圈内、判定圈外，初始速度**切向**（向下）——这样它会留在
+      // 圈内足够久，能观察到转向；若朝外跑，1 秒就出圈了，转向自然停止。
+      pond.debugAddItem(petal: true, pos: const Offset(260, 300));
+      final item = pond.nearestOf(true)!;
+      // 模型现在由 dir/speed 驱动 vel，外部给速度要走冲量通道。
+      item.vel = const Offset(0, 100);
+      item.speed = 100;
+      item.dir = const Offset(0, 1);
+      item.inertia = true;
+
+      // 情况四：进入加速圈后转向浮漂。转向是**限速**的（6 rad/s），
+      // 不是一帧对齐——瞬间改向会造成约 20px/s 的单帧速度突变。
+      expect(item.dir.dy, greaterThan(0), reason: '初始切向朝下');
+      for (var i = 0; i < 30; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+      }
+      expect((item.pos - buoy).distance, lessThan(PondModel.accelerateR),
+          reason: '本用例要求物件仍在加速圈内');
+      final toBuoy = buoy - item.pos;
+      final toward =
+          (item.dir.dx * toBuoy.dx + item.dir.dy * toBuoy.dy) / toBuoy.distance;
+      expect(toward, greaterThan(0.5),
+          reason: '加速圈内方向应转向浮漂（实测 cos=$toward）');
+
+      PondItem? hooked;
+      for (var i = 0; i < 600 && hooked == null; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        hooked = pond.takePendingHook();
+      }
+      expect(hooked, isNotNull, reason: '持续朝浮漂移动应最终进入判定圈');
+      expect(identical(hooked, item), isTrue);
+      expect(item.vel, Offset.zero, reason: '进判定圈速度立即清零');
+    });
+
+    test('Bug#5 运动速率必须连续：不得出现单帧速度突变（卡顿回归）', () {
+      // 早期实现是在速率跌破阈值时**直接赋值**成新的随机速度，实测单帧
+      // |Δv| 高达 60px/s，看起来就是"一跳一跳"。现在改成
+      // 起步→巡航→刹车→静止→换向 的分段模型，速率全程走斜坡，
+      // 方向只在速率为 0 时更换。
+      final pond = PondModel(rng: Random(7));
+      pond.resize(const Size(400, 800));
+      // 浮漂放得足够远：本用例只观察游走本身，不引入上钩/加速圈。
+      pond.setBuoy(const Offset(200, 380), shown: true);
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(200, 780));
+
+      Offset? prev;
+      var maxJump = 0.0;
+      for (var f = 0; f < 300; f++) {
+        pond.step(1 / 60, holdSeconds: 5);
+        final v = pond.items.first.vel;
+        if (prev != null) {
+          final dv = (v - prev).distance;
+          if (dv > maxJump) maxJump = dv;
+        }
+        prev = v;
+      }
+      expect(maxJump, lessThan(5.0),
+          reason: '单帧速度突变 ${maxJump.toStringAsFixed(1)}px/s——'
+              '游走速率必须连续（斜坡），突变会看成卡顿');
+    });
+
+    test('Bug#5 碰墙反弹：反弹后连续数步确实远离墙壁（不得顶着墙）', () {
+      final pond = PondModel(rng: Random(3));
+      pond.resize(const Size(400, 600));
+      pond.setBuoy(const Offset(200, 80), shown: true);
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(20, 420));
+      final item = pond.nearestOf(true)!;
+      // 朝左墙巡航：必然先碰左墙。速度每步由 dir×speed 重算，若反弹只改
+      // vel 就会被下一步覆盖，物体会一直顶着墙（贴边抖动/停住）。
+      item.dir = const Offset(-1, 0);
+      item.speed = 40;
+      item.cruiseSpeed = 40;
+      item.legPhase = 1;
+      item.legLeft = 10;
+      item.vel = item.dir * item.speed;
+
+      var bounced = false;
+      final after = <double>[];
+      for (var i = 0; i < 60 && after.length < 5; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        if (item.dir.dx > 0) bounced = true;
+        if (bounced) after.add(item.pos.dx);
+      }
+      expect(bounced, isTrue, reason: '应发生一次左墙反弹');
+      expect(after, hasLength(5));
+      for (var i = 1; i < after.length; i++) {
+        expect(after[i], greaterThan(after[i - 1]),
+            reason: '反弹后应持续远离左墙，实测 x=$after');
+      }
+    });
+
+    test('Bug#5 惯性滑行结束不得硬停：减速全程速率连续', () {
+      final pond = PondModel(rng: Random(5));
+      pond.resize(const Size(400, 800));
+      pond.setBuoy(const Offset(200, 380), shown: true);
+      pond.debugClear();
+      pond.debugAddItem(petal: true, pos: const Offset(200, 700));
+      final item = pond.nearestOf(true)!;
+      // 模拟击散的大冲量，观察它衰减到停、再重新起步的全过程。
+      // 位移上限约 120/1.8≈66px，不会碰到墙、也进不了加速圈。
+      item.vel = const Offset(120, 0);
+      item.speed = 120;
+      item.dir = const Offset(1, 0);
+      item.inertia = true;
+
+      // 窗口只覆盖 惯性衰减(~1.1s) → 刹车(1.0s) → 静止 → 重新起步，
+      // 约 2.8s。再长物件就会碰到墙/浮漂，那些是合法的瞬时事件
+      //（反射约 2×速率），会掩盖本条要测的"硬停"。
+      Offset? prev;
+      var maxJump = 0.0;
+      for (var f = 0; f < 170; f++) {
+        pond.step(1 / 60, holdSeconds: 0);
+        if (prev != null) {
+          final dv = (item.vel - prev).distance;
+          if (dv > maxJump) maxJump = dv;
+        }
+        prev = item.vel;
+      }
+      expect(maxJump, lessThan(5.0),
+          reason: '惯性衰减到停的过程中出现 ${maxJump.toStringAsFixed(1)}px/s '
+              '的单帧突变——不能在阈值处直接清零');
+    });
+
+    test('Bug#5 每个花瓣/杂物都是独立对象：不共用速度或方向变量', () {
+      final pond = PondModel();
+      pond.resize(const Size(400, 600));
+      pond.setBuoy(const Offset(200, 300), shown: true);
+      pond.debugClear();
+      for (var i = 0; i < 4; i++) {
+        pond.debugAddItem(petal: i.isEven, pos: Offset(60.0 + i * 30, 520));
+      }
+      // 每个物件必须自带随机源，否则游走会共用同一串随机数。
+      final rngs = pond.items.map((e) => e.rng).toSet();
+      expect(rngs.length, pond.items.length, reason: '每个物件应各有独立随机源');
+
+      for (var i = 0; i < 180; i++) {
+        pond.step(1 / 60, holdSeconds: 0);
+      }
+      // 各物件的巡航速率必须各自抽取——共用一个全局速度变量时这里会是单值。
+      final cruise = pond.items
+          .map((e) => e.cruiseSpeed.toStringAsFixed(3))
+          .toSet();
+      expect(cruise.length, greaterThan(1),
+          reason: '所有物件的巡航速率完全相同——疑似共用速度变量');
+
+      // 也不能所有物件的速度矢量完全一致（那是共用方向变量的表征）。
+      // 注意：碰墙反射后两个物件短暂同向是合法物理，所以这里只要求
+      // "并非全体一致"，不再逐对要求方向不同。
+      final moving = pond.items.where((e) => e.vel.distance > 0.01);
+      final distinct = moving
+          .map((e) =>
+              '${e.vel.dx.toStringAsFixed(3)},${e.vel.dy.toStringAsFixed(3)}')
+          .toSet();
+      expect(distinct.length, greaterThan(1),
+          reason: '所有物件的速度矢量完全一致——疑似共用速度/方向变量');
     });
 
     testWidgets('连续两次抛竿都击散起涟漪（P2：收竿要复位落水沿标记）', (tester) async {
@@ -779,6 +1134,26 @@ void main() {
       session.dispose();
     });
 
+    testWidgets('静帧模式：画面必须自行低频刷新，不能等事件才跳位置', (tester) async {
+      // 静帧模式下模型仍由会话轮询推进（判定不能停），但画面若只在
+      // notifyVisualChanged 时重建，就会"冻结几秒 → 突然跳到新位置"。
+      // 这是录屏里 2.5s/4.25s 两次跳变的根因。
+      final (session, scheduler) = await pumpSession(tester, reduceMotion: true);
+      await tester.pump(const Duration(milliseconds: 16));
+      final dynamic layer = tester.allStates.firstWhere(
+        (s) => s.runtimeType.toString() == '_PondLayerState',
+      );
+      final before = layer.debugStaticRefreshes as int;
+      // 推进 1 秒，期间没有任何玩法事件。
+      await tester.pump(const Duration(seconds: 1));
+      final after = layer.debugStaticRefreshes as int;
+      expect(after - before, greaterThanOrEqualTo(5),
+          reason: '静帧模式 1 秒只自刷新 ${after - before} 次——'
+              '刷新太少会让画面过期，事件一来就整屏跳位置');
+      scheduler.dispose();
+      session.dispose();
+    });
+
     testWidgets('减少动态效果下动画帧停住（帧率独立步进只作用于动态模式）', (tester) async {
       final (session, scheduler) = await pumpSession(tester, reduceMotion: true);
       await tester.pump(const Duration(milliseconds: 100));
@@ -809,7 +1184,7 @@ void main() {
 
         expect(session.debugMissed, 1);
         expect(sounds.played.where((k) => k == 'fish_sink'), hasLength(1));
-        expect(session.debugIsResting, isTrue);
+        expect(session.debugIsResting, isFalse, reason: '沉没不该收杆');
         scheduler.dispose();
         session.dispose();
       });

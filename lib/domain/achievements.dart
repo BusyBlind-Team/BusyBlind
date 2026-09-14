@@ -306,6 +306,9 @@ final List<AchievementDef> kAchievements = [
       'tide_breath',
       (m) =>
           ((m['phaseCount'] as num?) ?? 0) >= 2 &&
+          // 解放双手模式下没人真的跟着呼吸，相位吻合恒为真、同步率必是
+          // 满值——不能据此解锁"水之呼吸"。
+          m['handsFree'] != true &&
           (_metric(m, 'avgSync') ?? 0) > 0.90,
     ),
   ),

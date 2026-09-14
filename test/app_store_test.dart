@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'dart:io';
 
 import 'package:busy_blind/core/llm/llm_client.dart';
@@ -55,25 +54,49 @@ void main() {
       expect(store.merit, 7);
     });
 
-    test('花瓣按稀有度收集与合成（新改进意见：70/25/5）', () {
+    test('花瓣按花种收集与合成（新要求 #1：上钩即定种）', () {
       final store = AppStore.inMemory();
       // 花瓣不足：合不出，也不扣花瓣。
       for (var i = 0; i < 3; i++) {
-        store.addPetal(PetalRarity.common);
+        store.addPetal('osmanthus');
       }
-      expect(store.craftFlower(4, PetalRarity.common), isNull);
+      expect(store.craftFlower('osmanthus'), isNull);
+      expect(store.petalCountOfSpecies('osmanthus'), 3);
       expect(store.petalCountOf(PetalRarity.common), 3);
 
-      // 4 枚常见花瓣 → 常见 4 瓣花（桂花）。
-      store.addPetal(PetalRarity.common);
-      final drawn = store.craftFlower(4, PetalRarity.common, rng: Random(7));
+      // 4 片桂花花瓣 → 桂花（瓣数就是该花种自己的瓣数）。
+      store.addPetal('osmanthus');
+      final drawn = store.craftFlower('osmanthus');
       expect(drawn, isNotNull);
       expect(drawn!.petals, 4);
       expect(drawn.id, 'osmanthus');
-      expect(store.flowers, contains(drawn.id));
+      expect(store.ownsFlower('osmanthus'), isTrue);
+      expect(store.petalCountOfSpecies('osmanthus'), 0);
       expect(store.petalCountOf(PetalRarity.common), 0);
-      // 其他稀有度桶不受影响。
+
+      // 别的花种有自己的门槛：4 瓣凑不出 5 瓣的桃花，也不会串用桂花的花瓣。
+      for (var i = 0; i < 4; i++) {
+        store.addPetal('peach');
+      }
+      expect(store.craftFlower('peach'), isNull);
+      expect(store.petalCountOfSpecies('peach'), 4);
+      // 稀有度是花种之和：4 片桃花 = 4 枚常见。
+      expect(store.petalCountOf(PetalRarity.common), 4);
       expect(store.petalCountOf(PetalRarity.rare), 0);
+
+      // 未知花种不误合成（不能当成桂花）。
+      expect(store.craftFlower('nope'), isNull);
+
+      // 花瓣不能跨花种凑数：2 片桂花 + 2 片桃花（合计 4）合不出 4 瓣的桂花。
+      final mixed = AppStore.inMemory()
+        ..addPetal('osmanthus')
+        ..addPetal('osmanthus')
+        ..addPetal('peach')
+        ..addPetal('peach');
+      expect(mixed.craftFlower('osmanthus'), isNull);
+      expect(mixed.petalCountOfSpecies('osmanthus'), 2);
+      expect(mixed.petalCountOfSpecies('peach'), 2);
+      expect(mixed.petalCount, 4, reason: '合成失败不该扣掉任何花瓣');
     });
 
     test('旧版花瓣存量迁移：物种 Map → 总数 → 常见桶（三段链，幂等）', () {
@@ -84,14 +107,18 @@ void main() {
         'sessions': <Object?>[],
         'petals': {'sakura': 2, 'peach': 3},
         'petalsByRarity': {'common': 0, 'rare': 0, 'legendary': 0},
+        'petalsBySpecies': <String, int>{},
       });
-      // 一段迁移后：总数 5 且已全额计入"常见"桶（第 16 轮修正前
-      // 分桶恒为 0，存量被遗弃）。
+      // 四段迁移一次跑完：总数 5 → 进"常见"桶 → 摊到花种。
       expect(migrated['petals'], 0);
-      expect(
-        (migrated['petalsByRarity'] as Map)['common'],
-        5,
-      );
+      expect((migrated['petalsByRarity'] as Map)['common'], 0);
+      // v3：只知稀有度的 5 枚常见瓣按图鉴顺序轮流摊到花种上（桂花/桃花/
+      // 梨花/樱花/迎春各 1），总数不丢、余量清零。
+      final species = (migrated['petalsBySpecies'] as Map).cast<String, int>();
+      expect(species.values.fold(0, (a, b) => a + b), 5);
+      expect(species['osmanthus'], 1);
+      expect(species['peach'], 1);
+      expect(species['winterJasmine'], 1);
 
       // v1：总数 int 存档 → 直接入桶。
       final migrated2 = AppStore.applyMigrations({
@@ -100,37 +127,52 @@ void main() {
         'sessions': <Object?>[],
         'petals': 5,
         'petalsByRarity': {'common': 0, 'rare': 0, 'legendary': 0},
+        'petalsBySpecies': <String, int>{},
       });
       expect(migrated2['petals'], 0);
-      expect(migrated2['petalsByRarity'], containsPair('common', 5));
+      expect(
+        (migrated2['petalsBySpecies'] as Map).values.cast<int>().fold(0, (a, b) => a + b),
+        5,
+      );
+      expect((migrated2['petalsByRarity'] as Map)['common'], 0);
 
       // 幂等：对同一份数据重复迁移不重复累加。
       final again = AppStore.applyMigrations(
         Map<String, Object?>.from(migrated2),
       );
-      expect(again['petalsByRarity'], containsPair('common', 5));
+      expect(
+        (again['petalsBySpecies'] as Map).values.cast<int>().fold(0, (a, b) => a + b),
+        5,
+      );
     });
 
-    test('8 枚奇珍花瓣固定合成莲花；稀有度不串桶', () {
+    test('8 片莲花花瓣合成莲花；不同花种不串桶', () {
       final store = AppStore.inMemory();
       for (var i = 0; i < 3; i++) {
         for (var j = 0; j < 8; j++) {
-          store.addPetal(PetalRarity.legendary);
+          store.addPetal('lotus');
         }
-        final drawn = store.craftFlower(8, PetalRarity.legendary, rng: Random(i));
+        final drawn = store.craftFlower('lotus');
         expect(drawn!.id, 'lotus');
         expect(drawn.rarity, FlowerRarity.legendary);
       }
-      // 稀有 5 瓣档：只可能出 5 瓣稀有池里的花（海棠），且不消耗常见桶。
+      // 5 片海棠花瓣 → 海棠；不消耗别的花种，也不受常见瓣影响。
       for (var i = 0; i < 5; i++) {
-        store.addPetal(PetalRarity.rare);
+        store.addPetal('crabapple');
       }
-      store.addPetal(PetalRarity.common);
-      final commonBefore = store.petalCountOf(PetalRarity.common);
-      final five = store.craftFlower(5, PetalRarity.rare, rng: Random(3))!;
+      store.addPetal('osmanthus');
+      final commonBefore = store.petalCountOfSpecies('osmanthus');
+      final five = store.craftFlower('crabapple')!;
       expect(five.petals, 5);
       expect(five.id, 'crabapple');
-      expect(store.petalCountOf(PetalRarity.common), commonBefore);
+      expect(store.petalCountOfSpecies('osmanthus'), commonBefore);
+      // 图鉴的花不重复入库。
+      store.addPetal('crabapple');
+      for (var i = 0; i < 4; i++) {
+        store.addPetal('crabapple');
+      }
+      store.craftFlower('crabapple');
+      expect(store.flowers.where((f) => f == 'crabapple'), hasLength(1));
     });
 
     test('背景音乐设置：曲目与音量持久化，音量截断到 0..1', () {
@@ -266,6 +308,31 @@ void main() {
       for (final a in regular) {
         expect(a.condition, isNot(equals(a.title)));
       }
+    });
+
+    test('水之呼吸：解放双手模式下不可达成（第二轮）', () {
+      // 解放双手时相位吻合恒为真、avgSync 必是满值，若只看同步率会白拿。
+      AppStore run({required bool handsFree, required double sync}) {
+        final store = AppStore.inMemory();
+        store.addSession(
+          practiceId: 'tide_breath',
+          merit: 0,
+          completed: true,
+          durationMs: 300000,
+          metrics: {
+            'phaseCount': 10,
+            'avgSync': sync,
+            'handsFree': handsFree,
+          },
+        );
+        evaluateAchievements(store);
+        return store;
+      }
+
+      expect(run(handsFree: true, sync: 1.0).isUnlocked('tide_sync90'), isFalse,
+          reason: '解放双手模式不应解锁「水之呼吸」');
+      expect(run(handsFree: false, sync: 0.95).isUnlocked('tide_sync90'), isTrue,
+          reason: '普通模式下同步率 >90% 应正常解锁');
     });
 
     test('成就解锁幂等', () {

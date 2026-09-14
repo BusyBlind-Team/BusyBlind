@@ -46,6 +46,14 @@ class FishPetalsSession extends PracticeSession {
     if (r < _legendaryChance + _rareChance) return PetalRarity.rare;
     return PetalRarity.common;
   }
+
+  /// 上钩那一刻就定种（新要求 #1）：先按上面的稀有度概率抽档，再在本档
+  /// 花池里等概率取一种。原来的抽取发生在合成时，现在提前到上钩，
+  /// 于是"钓到的是哪种花的花瓣"当场就确定了。
+  FlowerSpecies rollPetalSpecies() {
+    final pool = flowerSpeciesOfRarity(rollPetalRarity());
+    return pool[_rng.nextInt(pool.length)];
+  }
   static const int _meritPerPetal = 3; // 待对齐清单 #5：钓到花瓣数 × 3
 
   late PracticeContext _ctx;
@@ -88,9 +96,10 @@ class FishPetalsSession extends PracticeSession {
     iconKey: 'fish_petals',
     allowManualEnd: true,
     rulesText:
-        '长按屏幕把浮漂落在手指处，落定后就固定在那里，闭眼等。\n刚投下会惊散附近的花瓣——前两秒不会有人上钩；\n'
-        '花瓣和杂物会慢慢漂回浮漂，漂到跟前才可能上钩。\n'
-        '"叮"是花瓣碰漂，1.5 秒内松手收杆；"咚"只是杂物，收了也是空竿。',
+        '长按屏幕把浮漂落在手指处，落定后就固定在那里，闭眼等。\n'
+        '落点若正好压着花瓣或杂物，会先把它惊散——它得自己漂回来才可能上钩。\n'
+        '"叮"是花瓣碰漂，1.5 秒内松手收杆；"咚"只是杂物，收了也是空竿。\n'
+        '没抓住的东西会沉下去，但浮漂留在原处，接着等下一件就好；抬手才是收杆。',
     introTags: '趣味·耐心·收集',
     intro: '甩杆，然后静候。频繁地甩杆会惊动花瓣，所以请耐心等待，它们会上钩的。不要心急，否则只会钓起一堆杂物。',
   );
@@ -144,22 +153,21 @@ class FishPetalsSession extends PracticeSession {
 
     switch (_state) {
       case _RodState.casting:
-        final heldUs = now - _castStartUs;
-        final rate = biteRatePerSecond(heldUs);
-        // 100ms 轮询，事件概率 = 每秒概率 × 0.1。概率命中后还要求
-        // 有花瓣/杂物自然漂进浮漂判定半径（Bug 描述 #5：禁止远程钓）。
-        if (_rng.nextDouble() < rate * 0.1) {
-          _hook(now);
-        }
+        // Bug#5（第二轮 §5.6）：不再用"每秒概率 × 0.1"抽是否触竿，改为
+        // 纯物理判定——物体漂进内层判定圈即上钩（外层加速圈会先把它导向
+        // 浮漂）。等待越久、朝向浮漂的偏向概率越高，触竿自然越容易，
+        // 原来的耐心训练意图由物理本身承载。
+        final pending = pond.takePendingHook();
+        if (pending != null) _hook(now, pending);
       case _RodState.hooked:
         final held = now - _hookAtUs;
-        // "叮"后超时未收手：花瓣随波而去。
+        // "叮"后超时未收手：花瓣随波而去（浮漂不收，继续等下一件）。
         if (_hookIsPetal && held > _catchWindowUs) {
           _missed++;
-          _sinkAndRest(now);
+          _sinkKeepFishing(now);
         } else if (held > _hookTimeoutUs) {
-          // "咚"后长时间握着不放：自动空竿休整，不把状态机吊死。
-          _sinkAndRest(now);
+          // "咚"后长时间握着不放：物件沉掉、浮漂留着，不把状态机吊死。
+          _sinkKeepFishing(now);
         }
       case _RodState.idle:
       case _RodState.resting:
@@ -176,17 +184,19 @@ class FishPetalsSession extends PracticeSession {
 
   /// 上钩的东西到点沉底（复审 R3）：沉没声与视觉状态都由会话状态机在
   /// 会话时间轴上发出——不依赖绘制帧率，关闭动画/无障碍模式下时机一致。
-  void _sinkAndRest(int now) {
+  ///
+  /// 沉没**不收杆**（新要求 #2）：浮漂留在原处、状态回到"继续等待"，
+  /// 错过一次不必重新抛竿。想收杆就抬手——等待中抬手仍是收杆。
+  void _sinkKeepFishing(int now) {
     pond.sinkHooked();
     _ctx.sounds.play(SoundCatalog.fishSinkKey, gain: 0.9);
     _ctx.recorder.log('sink', {'petal': _hookIsPetal});
-    _restFrom(now);
+    _state = _RodState.casting;
+    notifyVisualChanged();
   }
 
-  void _hook(int now) {
-    // 上钩判定：漂进浮漂判定半径的那个东西才上钩，类型由它自己决定。
-    final item = pond.hookNearestItem(within: PondModel.hookRadius);
-    if (item == null) return;
+  void _hook(int now, PondItem item) {
+    // 上钩者由池塘模拟给出（漂进判定圈的那一件），类型由它自己决定。
     _hookAtUs = now;
     _hookIsPetal = item.isPetal;
     pond.hookItem(item);
@@ -251,27 +261,31 @@ class FishPetalsSession extends PracticeSession {
         if (_state == _RodState.hooked) {
           final heldUs = _hookAtUs - _castStartUs;
           if (_hookIsPetal && now - _hookAtUs <= _catchWindowUs) {
-            // 收杆成功：按稀有度概率抽花瓣入库（常见70%/稀有25%/奇珍5%）。
-            final rarity = rollPetalRarity();
+            // 收杆成功：上钩那一刻就定种（常见70%/稀有25%/奇珍5%，
+            // 同稀有度内各花等概率），此刻只把结果落袋。
+            final species = rollPetalSpecies();
             _petalsCaught++;
             _waitTimesUs.add(heldUs);
             _caught.add(
               Reward(
                 kind: RewardKind.petal,
-                id: rarity.id,
-                label: '花瓣（${rarity.label}）',
+                id: species.id,
+                label: '花瓣（${species.displayName}）',
               ),
             );
             pond.catchHooked();
             _ctx.sounds.play(SoundCatalog.windChimeKey, gain: 0.5);
-            _ctx.recorder.log('catch', {'petals': _petalsCaught});
+            _ctx.recorder.log('catch', {
+              'petals': _petalsCaught,
+              'flower': species.id,
+            });
             _restFrom(now);
           } else if (_hookIsPetal) {
             // 叮后超窗才松手（沉没轮询还没来得及判，三轮审查 P1）：
             // 复用轮询超时的沉没路径，保证"超时流失"不因计时器先后
-            // 有时沉没有声、有时漂回无声。
+            // 有时沉没有声、有时漂回无声。浮漂同样留在水里（新要求 #2）。
             _missed++;
-            _sinkAndRest(now);
+            _sinkKeepFishing(now);
           } else {
             // "咚"后收手 = 空竿：上钩的杂物就地脱钩恢复漂流
             //（二轮审查 P1：不发状态物件会永久卡在 hooked 态）。
@@ -470,13 +484,46 @@ class PetalBadge extends StatelessWidget {
 class PondItem {
   PondItem({required this.isPetal, required this.pos, required Random rng})
     : phase = rng.nextDouble() * 2 * pi,
-      speed = 0.55 + rng.nextDouble() * 0.8;
+      // 每个物体**自带一个独立随机源**，游走的方向与速度全部由它自己抽。
+      // 绝不用模型级的共享变量，否则多个物体会整齐划一地同步漂移。
+      rng = Random(rng.nextInt(1 << 31)),
+      // 碰撞半径与质量（§5.4）：杂物更大更"重"。
+      radius = isPetal ? 12.0 : 24.0,
+      mass = isPetal ? 1.0 : 1.9;
 
   final bool isPetal;
   Offset pos;
   Offset vel = Offset.zero;
   double phase;
-  double speed;
+
+  /// 该物体自己的随机源（游走方向/速度）。
+  final Random rng;
+
+  /// 当前速率（标量）与行进方向——速率**连续变化**，方向只在速率为 0
+  /// 时更换，避免单帧速度突变造成"一跳一跳"的卡顿。
+  double speed = 0;
+  Offset dir = const Offset(1, 0);
+
+  /// 游走分段：0 起步加速 / 1 巡航 / 2 刹车 / 3 静止歇一下。
+  /// 初值是"静止且计时已到"，第一帧就会开出一段新游走——否则初版
+  /// cruiseSpeed=0 会让第一段巡航空转好几秒，物件杵在原地不动。
+  int legPhase = 3;
+  double legLeft = 0;
+  double cruiseSpeed = 0;
+
+  /// 是否还在惯性滑行（吃过击散/碰撞冲量，速率高于游走量级）。
+  /// 为真时只吃阻力，等衰减回游走量级再交回分段循环。
+  bool inertia = false;
+
+  /// 被**这一竿**击散后的剩余"免上钩"时间（新要求 #3）：抛竿落点就在它
+  /// 身上（初始位于加速圈以内）时置为 [_spookMaxSec]，滑出加速圈或时间
+  /// 用尽即清零。期间既不朝浮漂转向、也不判上钩，所以它是"先被击散"。
+  double spookLeft = 0;
+
+  /// 碰撞半径 / 质量（§5.3 情况六）。
+  final double radius;
+  final double mass;
+
   bool hooked = false;
   bool leaving = false; // 被钓起：向浮漂收拢消失
   double leaveT = 0;
@@ -518,13 +565,51 @@ class PondModel {
   /// 浮漂判定半径：漂浮物自然漂进该范围才可能上钩（Bug 描述 #5）。
   static const double hookRadius = 36;
 
-  /// 抛竿击散的作用半径（Bug 描述 #5：只小范围散开）。
+  /// Bug#5（第二轮 §5.3 情况四）：双层判定圈。
+  /// 外圈"加速圈"——进入即把方向修正为面向浮漂；内圈"判定圈"——进入即上钩。
+  static const double accelerateR = 118;
+  static const double catchR = 30;
+
+  /// §5.3 情况一：抛竿击散的作用半径（力度按距离衰减，沿用原参数）。
   static const double _scatterRadius = 170;
+
+  /// 新要求 #3：落点在加速圈内的物件"先击散、后议上钩"。
+  /// [_escapeMargin] 是滑行距离要多留的余量；[_spookMaxSec] 是兜底时长——
+  /// 万一被墙或别的物件挡住没能滑出去，也不能让它永远不能上钩。
+  static const double _escapeMargin = 20;
+  static const double _spookMaxSec = 2.4;
+
+  /// §5.3 情况二：惯性滑行的阻力系数。
+  static const double _drag = 1.8;
+
+  /// §5.3 情况三：游走速率区间与各段时长。
+  /// 起步/刹车都用线性斜坡，单帧速度变化 = 速率/斜坡时长/60 ≈ 1 px/s，
+  /// 远低于肉眼可辨的阈值。
+  static const double _wanderMin = 18;
+  static const double _wanderMax = 40;
+  static const double _legAccelSec = 0.8;
+  static const double _legBrakeSec = 1.0;
+
+  /// 加速圈内的最大转向角速度（弧度/秒）。6 rad/s 约 0.5 秒转 180°，
+  /// 单帧速度变化 = 速率 × 6 × dt ≈ 4px/s，看不出折角。
+  static const double _turnRate = 6.0;
+
+  /// §5.3 情况三：朝浮漂的初始概率，以及涨到上限所需时间。
+  static const double _biasMin = 0.18;
+  static const double _biasMax = 0.85;
+  static const int _biasRampUs = 45000000;
+
+  /// §5.3 情况六：碰撞恢复系数（<1 表示非弹性，动能逐次损耗）。
+  static const double _restitution = 0.72;
+
+  /// 浮漂本次在水中的滞留时长（收杆/抛竿时重置）。
+  double _castElapsedUs = 0;
+
+  /// 本帧是否有物体刚进入判定圈（由会话轮询取走，走正常收杆流程）。
+  PondItem? _pendingHook;
 
   Size get size => _size;
 
-  /// 屏幕对角线：屏内两点距离的上界（吸引衰减归一基准）。
-  double get _diagonal => Offset(_size.width, _size.height).distance;
   Offset? get buoy => _buoy;
   bool get buoyShown => _buoyShown && _buoy != null;
   int get hookedCount => items.where((i) => i.hooked).length;
@@ -568,6 +653,9 @@ class PondModel {
     _buoyShown = shown;
     final shownNow = buoyShown;
     if (shownNow && !_buoyWasShown) {
+      // 每次抛竿重新计时：偏向浮漂的概率从初始值重新爬升。
+      _castElapsedUs = 0;
+      _pendingHook = null;
       for (var i = 0; i < 3; i++) {
         ripples.add((pos: pos, age: -i * 0.18));
       }
@@ -584,7 +672,11 @@ class PondModel {
   /// 第二次抛竿不再满足上升沿条件，击散与涟漪只在第一竿出现（P2）。
   void setBuoyShown(bool shown) {
     _buoyShown = shown;
-    if (!shown) _buoyWasShown = false;
+    // §5.3 情况三：收杆时把"朝浮漂"的概率重置回均匀。
+    if (!shown) {
+      _buoyWasShown = false;
+      _castElapsedUs = 0;
+    }
   }
 
   /// 距浮漂最近的同类型漂浮物（可限判定半径）；没有则 null。
@@ -623,8 +715,26 @@ class PondModel {
   }
 
   /// 绑定上钩者（视觉：停在浮漂边打转）。
+  ///
+  /// §5.3 情况五：他者上钩的瞬间，其余物体立刻获得"远离浮漂"的速度；
+  /// 已经在加速圈内的，远离速度要大于靠近速度，才会真的被挤开而不是
+  /// 继续朝浮漂挪。
   void hookItem(PondItem item) {
     _hooked = item..hooked = true;
+    item.vel = Offset.zero;
+    item.speed = 0;
+    final c = _buoy;
+    if (c == null) return;
+    for (final other in items) {
+      if (identical(other, item) || other.sinking || other.leaving) continue;
+      final d = other.pos - c;
+      final dist = d.distance;
+      final dir = dist > 0.01 ? d / dist : const Offset(-1, 0);
+      final near = dist <= accelerateR;
+      final away = near ? _wanderMax * 2.4 : _wanderMax * 0.9;
+      other.vel = dir * away;
+      _applyImpulse(other);
+    }
   }
 
   /// 测试钩子：无视距离门槛绑定指定类型的最近者。
@@ -667,14 +777,30 @@ class PondModel {
 
   /// 抛竿惊散：只作用在浮漂周围 [_scatterRadius] 内、力度随距离衰减
   ///（Bug 描述 #5：力度减小，不再击飞到屏幕边缘）。
+  ///
+  /// 新要求 #3：落点**正好在物件身上**（初始位于加速圈以内）时优先击散——
+  /// 这种物件标记 [PondItem.spookLeft]，在被推离加速圈之前既不参与
+  /// "朝浮漂转向"也不判上钩，所以不会出现"抛在它头上就立刻上钩"。
   void scatter(Offset center) {
     for (final item in items) {
       if (item.hooked || item.sinking || item.leaving) continue;
       final d = item.pos - center;
       final dist = d.distance;
-      if (dist < 0.01 || dist > _scatterRadius) continue;
+      if (dist > _scatterRadius) continue;
+      // 落点与物件几乎重合时方向无意义：用该物件自己的随机源取一个方向。
+      final angle = item.rng.nextDouble() * 2 * pi;
+      final dir = dist > 1 ? d / dist : Offset(cos(angle), sin(angle));
       final falloff = 1 - dist / _scatterRadius;
-      item.vel += d / dist * 120 * falloff;
+      var impulse = 120 * falloff;
+      if (dist <= accelerateR) {
+        item.spookLeft = _spookMaxSec;
+        // 冲量 / 阻尼 = 滑行距离，所以要滑出加速圈，冲量至少这么大；
+        // 否则刚被推开就被圈里的转向力拽回来，等于没散开。
+        final need = _drag * (accelerateR + _escapeMargin - dist);
+        if (need > impulse) impulse = need;
+      }
+      item.vel += dir * impulse;
+      _applyImpulse(item); // 击散是瞬时冲量，之后进入惯性滑行
     }
   }
 
@@ -721,9 +847,13 @@ class PondModel {
     }
     ripples.removeWhere((r) => r.age > 1.3);
 
-    // 东西运动。
-    // 靠拢速度整体加快（Bug 描述 #5：缩短击散后的回漂等待）。
-    final pull = 44.0 + 26.0 * (holdSeconds / 45).clamp(0.0, 1.0);
+    // 东西运动（Bug#5 第二轮：改成速度/加速度模型，六种情况见 §5.3）。
+    // 浮漂在水中的滞留时间：朝向浮漂的概率随它单调上升（情况三）。
+    if (buoyShown) _castElapsedUs += dt * 1000000;
+    final bias =
+        (_biasMin + (_biasMax - _biasMin) * (_castElapsedUs / _biasRampUs))
+            .clamp(_biasMin, _biasMax);
+
     for (final item in items) {
       if (item.sinking) {
         item.sinkT += dt / 1.1;
@@ -751,36 +881,221 @@ class PondModel {
         continue;
       }
 
-      item.phase += dt * 0.5;
-      // 随机游走。
-      item.vel += Offset(
-        cos(item.phase * 1.7) * 9 * dt,
-        sin(item.phase * 1.3) * 9 * dt,
-      );
-      if (buoyShown) {
-        // buoyShown 蕴含 center != null。
-        final toBuoy = center! - item.pos;
+      // 情况二/三：惯性滑行与游走分段（速率全程连续，见 _updateWander）。
+      _updateWander(item, dt, center, buoyShown, bias);
+
+      var spooked = false;
+      if (buoyShown && center != null) {
+        final toBuoy = center - item.pos;
         final dist = toBuoy.distance;
-        // 有东西上钩时其余东西暂停靠拢倾向（二轮审查 P1：不主动推远）。
-        if (_hooked == null && dist > 24) {
-          final dir = dist > 0.01 ? toBuoy / dist : Offset.zero;
-          final falloff = (1 - dist / _diagonal).clamp(0.35, 1.0);
-          item.vel += dir * pull * item.speed * falloff * dt;
+        // 新要求 #3：被这一竿击散的物件先滑出加速圈，再谈上钩与转向。
+        if (item.spookLeft > 0) {
+          item.spookLeft -= dt;
+          spooked = dist <= accelerateR && item.spookLeft > 0;
+          if (!spooked) item.spookLeft = 0;
+        }
+        if (!spooked && dist > 0.01) {
+          // 情况四：进入外层加速圈 → 立即把方向修正为面向浮漂。
+          // 情况四：进入加速圈后把方向转向浮漂。
+          // 用**有上限的转向速率**而不是瞬间对齐——瞬间改向在 40px/s 下
+          // 会造成约 20px/s 的单帧速度突变，看起来是一次折角。
+          if (dist <= accelerateR && item.speed > 0) {
+            item.dir = _turnToward(item.dir, toBuoy / dist, _turnRate * dt);
+            item.vel = item.dir * item.speed;
+          }
+          // 情况四：进入内层判定圈 → 判定上钩、速度清零，交回会话收杆。
+          if (dist <= catchR) {
+            item.speed = 0;
+            item.vel = Offset.zero;
+            _pendingHook ??= item;
+          }
         }
       }
-      item.vel *= pow(0.5, dt).toDouble();
+
       item.pos += item.vel * dt;
-      item.pos = Offset(
-        item.pos.dx.clamp(16, _size.width - 16),
-        item.pos.dy.clamp(50, _size.height - 40),
-      );
+      // 情况六：碰屏幕边缘镜面反射。
+      _bounceOffWalls(item);
     }
+    // 情况六：物体之间的圆-圆碰撞（按质量交换动量）。
+    _resolveItemCollisions();
     items.removeWhere((item) {
       final gone =
           (item.sinking && item.sinkT >= 1) ||
           (item.leaving && item.leaveT >= 1);
       return gone;
     });
+  }
+
+  /// 取走"刚进入判定圈"的物体（会话轮询用；取走即清空）。
+  PondItem? takePendingHook() {
+    final item = _pendingHook;
+    _pendingHook = null;
+    return item;
+  }
+
+  /// §5.3 情况二/三：惯性滑行 + "起步 → 巡航 → 刹车 → 静止 → 换向"。
+  ///
+  /// **关键约束：除真正的冲量（击散/碰撞/被挤开）外，速率必须连续变化。**
+  /// 早期实现是在速率跌破阈值时直接把速度赋成新的随机值，实测单帧
+  /// |Δv| 高达 60px/s——看起来就是"一跳一跳"的卡顿。方向也只在速率为 0
+  /// 的静止段更换，换向因此不可见。
+  void _updateWander(
+    PondItem item,
+    double dt,
+    Offset? center,
+    bool buoyShown,
+    double bias,
+  ) {
+    if (item.inertia) {
+      item.vel *= exp(-_drag * dt);
+      item.speed = item.vel.distance;
+      if (item.speed > 0.01) item.dir = item.vel / item.speed;
+      if (item.speed <= _wanderMin) {
+        // 不要在这里硬清零：接着走"刹车"斜坡，从**当前速率**平滑减到 0，
+        // 再进静止段换向。否则击散/碰撞之后仍是"滑着滑着突然停一下"。
+        item.inertia = false;
+        item.cruiseSpeed = item.speed;
+        item.legPhase = 2;
+        item.legLeft = _legBrakeSec;
+      }
+      item.vel = item.dir * item.speed;
+      return;
+    }
+
+    item.legLeft -= dt;
+    switch (item.legPhase) {
+      case 0: // 起步：速率 0 → 巡航值（线性斜坡）
+        item.speed =
+            item.cruiseSpeed * (1 - item.legLeft / _legAccelSec).clamp(0.0, 1.0);
+        if (item.legLeft <= 0) {
+          item.speed = item.cruiseSpeed;
+          item.legPhase = 1;
+          item.legLeft = 1.2 + item.rng.nextDouble() * 2.2;
+        }
+      case 1: // 巡航
+        item.speed = item.cruiseSpeed;
+        if (item.legLeft <= 0) {
+          item.legPhase = 2;
+          item.legLeft = _legBrakeSec;
+        }
+      case 2: // 刹车：巡航值 → 0
+        item.speed =
+            item.cruiseSpeed * (item.legLeft / _legBrakeSec).clamp(0.0, 1.0);
+        if (item.legLeft <= 0) {
+          item.speed = 0;
+          item.legPhase = 3;
+          item.legLeft = 0.35 + item.rng.nextDouble() * 0.8;
+        }
+      default: // 静止：速率为 0，此时换向不可见
+        item.speed = 0;
+        if (item.legLeft <= 0) _startLeg(item, center, buoyShown, bias);
+    }
+    item.vel = item.dir * item.speed;
+  }
+
+  /// 开一段新游走。方向与速率都用**该物件自己的随机源**抽：以 [bias] 的
+  /// 概率朝浮漂（带角度抖动，不会直勾勾排队），否则纯随机方向。
+  void _startLeg(PondItem item, Offset? center, bool buoyShown, double bias) {
+    if (!buoyShown || center == null) {
+      item.speed = 0;
+      item.vel = Offset.zero;
+      item.legPhase = 3;
+      item.legLeft = 0.2;
+      return;
+    }
+    final double angle;
+    if (item.rng.nextDouble() < bias) {
+      final base = atan2(center.dy - item.pos.dy, center.dx - item.pos.dx);
+      angle = base + (item.rng.nextDouble() - 0.5) * 1.1;
+    } else {
+      angle = item.rng.nextDouble() * 2 * pi;
+    }
+    item.dir = Offset(cos(angle), sin(angle));
+    item.cruiseSpeed =
+        _wanderMin + item.rng.nextDouble() * (_wanderMax - _wanderMin);
+    item.legPhase = 0;
+    item.legLeft = _legAccelSec;
+    item.speed = 0;
+    item.vel = Offset.zero;
+  }
+
+  /// 把 [from] 这个单位方向朝 [to] 最多旋转 [maxRad] 弧度（有符号取近路）。
+  Offset _turnToward(Offset from, Offset to, double maxRad) {
+    final dot = (from.dx * to.dx + from.dy * to.dy).clamp(-1.0, 1.0);
+    final cross = from.dx * to.dy - from.dy * to.dx;
+    final angle = atan2(cross, dot);
+    final step = angle.clamp(-maxRad, maxRad);
+    final c = cos(step), sn = sin(step);
+    return Offset(from.dx * c - from.dy * sn, from.dx * sn + from.dy * c);
+  }
+
+  /// 把外部冲量记到物件上：进入"惯性滑行"，只吃阻力衰减。
+  void _applyImpulse(PondItem item) {
+    item.speed = item.vel.distance;
+    if (item.speed > 0.01) item.dir = item.vel / item.speed;
+    item.inertia = true;
+  }
+
+  /// §5.3 情况六：碰屏幕边缘镜面反射（带恢复系数）。
+  ///
+  /// **必须同时改 [PondItem.dir]**：速度每步都由 `dir × speed` 重算，
+  /// 只改 `vel` 的话下一步就被覆盖，物体会一直顶着墙（贴边抖动/停住）。
+  void _bounceOffWalls(PondItem item) {
+    const left = 16.0, right = 16.0, top = 50.0, bottom = 40.0;
+    final w = _size.width, h = _size.height;
+    var bounced = false;
+    if (item.pos.dx < left) {
+      item.pos = Offset(left, item.pos.dy);
+      item.dir = Offset(item.dir.dx.abs(), item.dir.dy);
+      bounced = true;
+    } else if (item.pos.dx > w - right) {
+      item.pos = Offset(w - right, item.pos.dy);
+      item.dir = Offset(-item.dir.dx.abs(), item.dir.dy);
+      bounced = true;
+    }
+    if (item.pos.dy < top) {
+      item.pos = Offset(item.pos.dx, top);
+      item.dir = Offset(item.dir.dx, item.dir.dy.abs());
+      bounced = true;
+    } else if (item.pos.dy > h - bottom) {
+      item.pos = Offset(item.pos.dx, h - bottom);
+      item.dir = Offset(item.dir.dx, -item.dir.dy.abs());
+      bounced = true;
+    }
+    if (!bounced) return;
+    // 速率按恢复系数损耗，并把 vel 同步成 dir × speed（统一状态）。
+    item.speed *= _restitution;
+    item.vel = item.dir * item.speed;
+  }
+
+  /// §5.3 情况六：物体之间的圆-圆碰撞。
+  ///
+  /// 先按质量反比分开重叠，再沿法线做一维碰撞：冲量由相对速度与质量决定，
+  /// 恢复系数 <1，动量守恒、动能逐次损耗。
+  void _resolveItemCollisions() {
+    for (var i = 0; i < items.length; i++) {
+      for (var j = i + 1; j < items.length; j++) {
+        final a = items[i], b = items[j];
+        if (a.sinking || b.sinking || a.leaving || b.leaving) continue;
+        final d = b.pos - a.pos;
+        final dist = d.distance;
+        final minDist = a.radius + b.radius;
+        if (dist >= minDist || dist < 0.001) continue;
+        final dir = d / dist;
+        final total = a.mass + b.mass;
+        final overlap = minDist - dist;
+        a.pos = a.pos - dir * (overlap * b.mass / total);
+        b.pos = b.pos + dir * (overlap * a.mass / total);
+
+        final rel = (b.vel - a.vel).dx * dir.dx + (b.vel - a.vel).dy * dir.dy;
+        if (rel > 0) continue; // 已经在分离
+        final impulse = -(1 + _restitution) * rel / (1 / a.mass + 1 / b.mass);
+        a.vel = a.vel - dir * (impulse / a.mass);
+        b.vel = b.vel + dir * (impulse / b.mass);
+        _applyImpulse(a);
+        _applyImpulse(b);
+      }
+    }
   }
 
   void _spawnAtEdge() {
@@ -860,14 +1175,41 @@ class _PondLayerState extends State<_PondLayer>
       if (_reduceMotion) {
         _frame.stop();
         _model.ripples.clear();
-        for (final item in _model.items) {
-          item.vel = Offset.zero;
-        }
+        // 静帧模式下模型仍由会话轮询推进（判定不能停），但画面若不重绘
+        // 就会"过期"：会话只在**状态变化**时递增 visualRevision，所以两次
+        // 判定之间没有任何重建——屏幕停在最后一帧、模型继续在走，下一次
+        // 判定（叮/咚、回到待机）重建时画面直接跳到新位置。录屏里 2.5s 的
+        // 空竿判定、4.25s 的回待机两次跳变正好落在这类事件上，中间 5~9s
+        // 的"冻住"就是事件之间的空档。这里按低频自行刷新让画面始终跟得上，
+        // 刷新率仍从 60fps 降到 ~8fps，符合"减少动态"。
+        _staticRefresh ??= Timer.periodic(_staticRefreshPeriod, (_) {
+          if (!mounted) return;
+          _staticRefreshes++;
+          setState(() {});
+        });
       } else {
+        _staticRefresh?.cancel();
+        _staticRefresh = null;
         _frame.repeat();
       }
     }
   }
+
+  /// 静帧刷新周期：约 8fps。
+  ///
+  /// 目的不是"让画面动起来"，而是让画面**不过期**：模型由会话轮询持续推进，
+  /// 只要刷新率跟得上，画面上物件的位置就与模型一致（巡航速率 ~40px/s 时
+  /// 每帧位移约 5px，看不出跳变；击散后的惯性冲刺会短暂更大，但仍是连续
+  /// 轨迹，而不是"冻住几秒再瞬移"）。同时它远低于逐帧渲染的开销，
+  /// 符合"减少动态"的本意。
+  static const Duration _staticRefreshPeriod = Duration(milliseconds: 120);
+
+  Timer? _staticRefresh;
+
+  /// 静帧模式下的自刷新次数（回归观察点：画面不能"过期"）。
+  @visibleForTesting
+  int get debugStaticRefreshes => _staticRefreshes;
+  int _staticRefreshes = 0;
 
   void _onFrame() {
     if (_reduceMotion) return;
@@ -914,11 +1256,14 @@ class _PondLayerState extends State<_PondLayer>
                 item.isPetal
                     ? 'assets/art/fish_petals/petal.png'
                     : 'assets/art/fish_petals/clutter.png',
-                width: 26,
-                height: 26,
+                // §5.5：杂物显示尺寸放大到两倍，花瓣不变。
+                width: item.isPetal ? 26 : 52,
+                height: item.isPetal ? 26 : 52,
                 fit: BoxFit.contain,
-                errorBuilder: (_, _, _) =>
-                    const SizedBox(width: 26, height: 26),
+                errorBuilder: (_, _, _) => SizedBox(
+                  width: item.isPetal ? 26 : 52,
+                  height: item.isPetal ? 26 : 52,
+                ),
               ),
             ),
           ),
@@ -949,6 +1294,7 @@ class _PondLayerState extends State<_PondLayer>
 
   @override
   void dispose() {
+    _staticRefresh?.cancel();
     _frame.dispose();
     super.dispose();
   }
