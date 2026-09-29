@@ -71,4 +71,4 @@ APK 默认输出到 `build/app/outputs/flutter-apk/app-release.apk`。公开分�
 
 ## 许可证
 
-项目代码采用 [MIT License](LICENSE)。第三方依赖和音频、美术素材的授权须分别遵守其适用条款，代码许可证不替代第三方素材授权。素材来源说明与问题反馈见[素材说明](ASSET_NOTICE.md)。
+项目代码采用 [MIT License](LICENSE)。第三方依赖和音频、美术素材的授权须分别遵守其适用条款。
