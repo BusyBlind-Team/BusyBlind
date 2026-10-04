@@ -41,11 +41,24 @@ Future<void> main() async {
   // 5 首 80 秒曲目整段解码进内存会无谓占用大量内存），由环境循环/
   // BgmPlayer 按需流式播放。
   final sounds = AudioPlayersSoundBank();
-  sounds.register(SoundCatalog.catalog);
-  await sounds.preload({
-    for (final e in SoundCatalog.catalog.entries)
-      if (!SoundCatalog.isStreamedKey(e.key)) e.key: e.value,
-  });
+  await sounds.register(SoundCatalog.catalog);
+  try {
+    await sounds.preload({
+      for (final e in SoundCatalog.catalog.entries)
+        if (!SoundCatalog.isStreamedKey(e.key)) e.key: e.value,
+    });
+  } catch (error, stack) {
+    // 单个资源或音频后端异常不能阻止进入应用；保留已预加载的音效，
+    // 并记录诊断信息，便于排查打包或平台问题。
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'busy_blind',
+        context: ErrorDescription('while preloading startup sound effects'),
+      ),
+    );
+  }
 
   // 时钟：全局音频时间轴（用户校准已随"时机校准"功能删除——Bug 描述 #3）。
   final clock = SystemAudioClock();

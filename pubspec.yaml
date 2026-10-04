@@ -67,6 +67,7 @@ flutter:
 
   assets:
     - assets/sfx/
+    - assets/sfx/river/
     - assets/bgm/
     - assets/images/practices/
     - assets/art/flowers/
